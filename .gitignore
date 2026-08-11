@@ -1,0 +1,15 @@
+.streamlit/secrets.toml
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Datos de producción reales: no se suben al repo (viven en la base Neon,
+# no se necesitan para desplegar la app; solo se usaron para el seed inicial).
+*.xlsx
+streamlit_local.log
+
+# Artefactos internos del entorno de trabajo, no del proyecto.
+.claude/
