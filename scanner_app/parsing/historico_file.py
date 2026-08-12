@@ -54,14 +54,36 @@ def load_historico(ruta) -> pd.DataFrame:
     return df
 
 
+def _destino_recuperacion_dominante(df_historico: pd.DataFrame) -> pd.Series:
+    """Valor más frecuente de destino_recuperacion por nombre (moda), indexado
+    por nombre. A diferencia del resto de las columnas de clasificación, este
+    campo trae errores de tipeo puntuales en el histórico (ej. una sola fila
+    con "Mueble" entre 48 filas con "Estructura" para el mismo nombre) que la
+    regla "último valor gana" adoptaría como vigente. Empates en cantidad se
+    resuelven con la fecha más reciente entre los empatados."""
+    df_no_nulo = df_historico.dropna(subset=["destino_recuperacion"])
+    conteos = (
+        df_no_nulo.groupby(["nombre", "destino_recuperacion"])["fecha"]
+        .agg(cantidad="size", ultima_fecha="max")
+        .reset_index()
+        .sort_values(["cantidad", "ultima_fecha"], ascending=[False, False])
+    )
+    return conteos.groupby("nombre").head(1).set_index("nombre")["destino_recuperacion"]
+
+
 def build_master_desde_historico(df_historico: pd.DataFrame) -> pd.DataFrame:
     """Tabla maestra inicial: último valor (por fecha) de cada Nombre.
     Regla de negocio confirmada: ante clasificaciones que cambiaron en el
-    histórico para un mismo Nombre, se usa la más reciente como vigente."""
+    histórico para un mismo Nombre, se usa la más reciente como vigente.
+    Excepción: destino_recuperacion usa la moda en vez del último valor (ver
+    _destino_recuperacion_dominante) porque sus variaciones en el histórico
+    son mayormente errores de tipeo puntuales, no reclasificaciones reales."""
     df_ordenado = df_historico.sort_values(["nombre", "fecha"])
     ultimo_por_nombre = df_ordenado.groupby("nombre", as_index=False).tail(1)
 
     maestra = ultimo_por_nombre[_COLUMNAS_MAESTRA].copy()
+    dominante = _destino_recuperacion_dominante(df_historico)
+    maestra["destino_recuperacion"] = maestra["nombre"].map(dominante)
     maestra["fecha_referencia"] = ultimo_por_nombre["fecha"].values
     maestra["origen"] = "historico"
     maestra["pendiente_revision"] = False

@@ -41,7 +41,7 @@ class RendimientoMensual:
     recuperacion: float
 
 
-def _promedio_por_lote(
+def promedio_por_lote(
     df: pd.DataFrame,
     agrupar_por: tuple[str, ...] = ("fecha", "turno", "escuadria"),
     filtro_col: str | None = None,
@@ -69,16 +69,16 @@ def calcular_rendimiento_mensual(df: pd.DataFrame) -> RendimientoMensual:
         return float(df.loc[df[columna] == valor, "volumen_nominal_m3"].sum() / vol_total * 100)
 
     return RendimientoMensual(
-        total=_promedio_por_lote(df),
-        turno_1=_promedio_por_lote(df[df["turno"] == 1], agrupar_por=("fecha", "escuadria")),
-        turno_2=_promedio_por_lote(df[df["turno"] == 2], agrupar_por=("fecha", "escuadria")),
+        total=promedio_por_lote(df),
+        turno_1=promedio_por_lote(df[df["turno"] == 1], agrupar_por=("fecha", "escuadria")),
+        turno_2=promedio_por_lote(df[df["turno"] == 2], agrupar_por=("fecha", "escuadria")),
         blank=pct_del_volumen("tipo", "BLANK"),
         ctk=pct_del_volumen("tipo", "CTK"),
         pct_bajo_espesor=pct_del_volumen("obs_espesor", "Bajo Espesor"),
-        producto_principal=_promedio_por_lote(df, filtro_col="asignacion", filtro_val="Producto Principal"),
-        co_producto_principal=_promedio_por_lote(df, filtro_col="asignacion", filtro_val="Co-Producto Principal"),
-        co_producto_secundario=_promedio_por_lote(df, filtro_col="asignacion", filtro_val="Co-Producto Secundario"),
-        recuperacion=_promedio_por_lote(df, filtro_col="asignacion", filtro_val="Recuperación"),
+        producto_principal=promedio_por_lote(df, filtro_col="asignacion", filtro_val="Producto Principal"),
+        co_producto_principal=promedio_por_lote(df, filtro_col="asignacion", filtro_val="Co-Producto Principal"),
+        co_producto_secundario=promedio_por_lote(df, filtro_col="asignacion", filtro_val="Co-Producto Secundario"),
+        recuperacion=promedio_por_lote(df, filtro_col="asignacion", filtro_val="Recuperación"),
     )
 
 
@@ -91,9 +91,9 @@ def serie_diaria_rendimiento(df: pd.DataFrame) -> pd.DataFrame:
 
     filas = []
     for fecha, grupo in df.groupby("fecha"):
-        filas.append({"fecha": fecha, "serie": "Total", "valor": _promedio_por_lote(grupo, agrupar_por=("turno", "escuadria"))})
+        filas.append({"fecha": fecha, "serie": "Total", "valor": promedio_por_lote(grupo, agrupar_por=("turno", "escuadria"))})
         for turno, etiqueta in ((1, "Turno 1"), (2, "Turno 2")):
             sub = grupo[grupo["turno"] == turno]
             if not sub.empty:
-                filas.append({"fecha": fecha, "serie": etiqueta, "valor": _promedio_por_lote(sub, agrupar_por=("escuadria",))})
+                filas.append({"fecha": fecha, "serie": etiqueta, "valor": promedio_por_lote(sub, agrupar_por=("escuadria",))})
     return pd.DataFrame(filas)

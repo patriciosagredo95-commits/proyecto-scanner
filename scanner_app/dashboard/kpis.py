@@ -5,11 +5,13 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from scanner_app.dashboard.rendimiento import promedio_por_lote
+
 
 @dataclass
 class Kpis:
     volumen_nominal_m3: float
-    rendimiento_pct: float  # REND VOL N %, ponderado por volumen nominal
+    rendimiento_pct: float  # promedio por lote (fecha+turno+escuadria) de REND VOL N % -- ver rendimiento.promedio_por_lote
     cantidad_pcs: int
     num_runs: int
     pct_rechazo: float  # sobre piezas, incluye producción + rechazo
@@ -23,12 +25,7 @@ def calcular_kpis(df: pd.DataFrame) -> Kpis:
     cantidad_pcs = int(df["cantidad_pcs"].sum())
     num_runs = int(df["run_id"].dropna().nunique())
 
-    if volumen_nominal_m3 > 0:
-        rendimiento_pct = float(
-            (df["rend_vol_n_pct"] * df["volumen_nominal_m3"]).sum() / volumen_nominal_m3 * 100
-        )
-    else:
-        rendimiento_pct = 0.0
+    rendimiento_pct = promedio_por_lote(df)
 
     if cantidad_pcs > 0:
         pct_rechazo = float(df.loc[df["es_rechazo"], "cantidad_pcs"].sum() / cantidad_pcs * 100)
