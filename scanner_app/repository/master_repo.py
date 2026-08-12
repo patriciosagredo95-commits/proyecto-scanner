@@ -116,3 +116,37 @@ def bulk_upsert(conn, df_maestra: pd.DataFrame) -> None:
     registros = registros_sql(df_maestra)
     if registros:
         conn.execute(_UPSERT_SQL, registros)
+
+
+_SYNC_FACTS_INCOMPLETOS_SQL = text(
+    """
+    UPDATE production_facts f
+    SET escuadria = m.escuadria,
+        espesor_mm = m.espesor_mm,
+        ancho_mm = m.ancho_mm,
+        largo_nominal_mm = m.largo_nominal_mm,
+        destino = m.destino,
+        tipo = m.tipo,
+        asignacion = m.asignacion,
+        destino_recuperacion = m.destino_recuperacion,
+        pct_recuperacion = m.pct_recuperacion,
+        ancho_recuperacion = m.ancho_recuperacion,
+        obs_ancho = m.obs_ancho,
+        obs_espesor = m.obs_espesor
+    FROM master_products m
+    WHERE f.nombre = m.nombre
+      AND f.escuadria IS NULL
+      AND m.nombre = ANY(:nombres)
+    """
+)
+
+
+def sync_facts_incompletos(conn, nombres: list[str]) -> None:
+    """Actualiza production_facts.* (clasificación) para filas que quedaron con
+    escuadria NULL -- la foto que se tomó cuando el Nombre todavía era
+    'pendiente_revision' sin datos. No toca filas que ya tienen una
+    clasificación real (esas son fotos históricas legítimas y no deben
+    cambiar retroactivamente, ver comentario en schema.sql)."""
+    if not nombres:
+        return
+    conn.execute(_SYNC_FACTS_INCOMPLETOS_SQL, {"nombres": list(nombres)})

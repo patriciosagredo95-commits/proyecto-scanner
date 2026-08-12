@@ -53,6 +53,10 @@ if st.button("Guardar cambios", type="primary", icon=":material/save:"):
     with conn.session as s:
         for _, fila in editado.iterrows():
             master_repo.upsert(s, _fila_a_registro(fila))
+        # Filas de production_facts que se tomaron cuando el Nombre aún era
+        # 'pendiente_revision' (sin escuadria) se refrescan con la
+        # clasificación recién completada -- ver master_repo.sync_facts_incompletos.
+        master_repo.sync_facts_incompletos(s, editado["nombre"].tolist())
         s.commit()
     st.cache_data.clear()
     st.success("Cambios guardados.")
