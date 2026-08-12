@@ -35,6 +35,18 @@ def calcular_kpis(df: pd.DataFrame) -> Kpis:
     return Kpis(volumen_nominal_m3, rendimiento_pct, cantidad_pcs, num_runs, pct_rechazo)
 
 
+def nombres_excluidos_de_rendimiento(df: pd.DataFrame) -> list[str]:
+    """Nombres con escuadria NULL en el rango filtrado -- promedio_por_lote
+    agrupa por (fecha, turno, escuadria) y pandas descarta silenciosamente las
+    filas con NULL en alguna columna de agrupación, así que estos nombres
+    quedan afuera del cálculo de Rendimiento Vol. Nominal sin ningún aviso.
+    Suele pasar con productos recién creados como 'pendiente_revision' que
+    todavía no se completaron en la Tabla Maestra."""
+    if df.empty or "escuadria" not in df.columns:
+        return []
+    return sorted(df.loc[df["escuadria"].isna(), "nombre"].unique().tolist())
+
+
 def delta_pct(actual: float, anterior: float) -> float | None:
     """Delta porcentual para st.metric. None si no hay base de comparación."""
     if anterior in (0, None):

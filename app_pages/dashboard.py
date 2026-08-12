@@ -57,6 +57,15 @@ if df.empty:
 
 resumen = kpis.calcular_kpis(df)
 
+nombres_sin_escuadria = kpis.nombres_excluidos_de_rendimiento(df)
+if nombres_sin_escuadria:
+    st.warning(
+        f"{len(nombres_sin_escuadria)} producto(s) sin escuadria asignada quedan excluidos del cálculo "
+        "de **Rendimiento Vol. Nominal** (se agrupa por fecha + turno + escuadria) -- probablemente son "
+        "productos 'pendientes de revisión' que faltan completar en Tabla Maestra: "
+        + ", ".join(nombres_sin_escuadria)
+    )
+
 col1, col2, col3, col4, col5 = st.container(horizontal=True).columns(5)
 col1.metric("Volumen Nominal [m³]", f"{resumen.volumen_nominal_m3:,.2f}")
 col2.metric("Rendimiento Vol. Nominal [%]", f"{resumen.rendimiento_pct:,.1f}%")
