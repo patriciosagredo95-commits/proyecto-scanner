@@ -138,9 +138,9 @@ def rendimiento_diario(serie_larga: pd.DataFrame) -> alt.Chart:
     )
 
 
-def top_productos(df: pd.DataFrame, n: int = 10, metrica: str = "volumen_nominal_m3") -> alt.Chart:
+def top_escuadrias(df: pd.DataFrame, n: int = 10, metrica: str = "volumen_nominal_m3") -> alt.Chart:
     agregado = (
-        df.groupby("nombre", as_index=False)[metrica]
+        df.groupby("escuadria", as_index=False)[metrica]
         .sum()
         .sort_values(metrica, ascending=False)
         .head(n)
@@ -151,8 +151,8 @@ def top_productos(df: pd.DataFrame, n: int = 10, metrica: str = "volumen_nominal
         .mark_bar(color=_PALETTE["blue"], cornerRadiusTopRight=4, cornerRadiusBottomRight=4)
         .encode(
             x=alt.X(f"{metrica}:Q", title=metrica),
-            y=alt.Y("nombre:N", sort="-x", title="Producto"),
-            tooltip=[alt.Tooltip("nombre:N", title="Producto"), alt.Tooltip(f"{metrica}:Q", format=".2f")],
+            y=alt.Y("escuadria:N", sort="-x", title="Escuadria"),
+            tooltip=[alt.Tooltip("escuadria:N", title="Escuadria"), alt.Tooltip(f"{metrica}:Q", format=".2f")],
         )
         .properties(height=max(200, 28 * len(agregado)))
     )

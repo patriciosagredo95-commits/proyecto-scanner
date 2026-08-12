@@ -98,8 +98,8 @@ with col_izq2:
         st.altair_chart(charts.distribucion_por_dimension(df, dimension), width="stretch")
 with col_der2:
     with st.container(border=True):
-        st.subheader("Top productos por Volumen Nominal")
-        st.altair_chart(charts.top_productos(df), width="stretch")
+        st.subheader("Top Escuadrias por Volumen Nominal")
+        st.altair_chart(charts.top_escuadrias(df), width="stretch")
 
 st.divider()
 st.subheader("RUNs recientes")
