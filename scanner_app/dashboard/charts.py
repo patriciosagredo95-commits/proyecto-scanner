@@ -17,6 +17,21 @@ _PALETTE = {
 }
 _ORDEN_CATEGORICO = ["blue", "orange", "aqua", "yellow", "magenta", "green", "violet", "red"]
 
+# Vega expression functions (day/date/month/year) leen la fecha en hora local,
+# igual que el formato por defecto que reemplazan -- Vega-Lite no trae nombres
+# de día/mes en español y Streamlit no reenvía la opción timeFormatLocale de
+# vega-embed, así que se arman los labels a mano con estos arreglos.
+_DIAS_ES = "['dom','lun','mar','mié','jue','vie','sáb']"
+_MESES_ES = "['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']"
+_LABEL_EXPR_DIA = f"{_DIAS_ES}[day(datum.value)] + ' ' + date(datum.value)"
+_LABEL_EXPR_SEMANA = f"date(datum.value) + ' ' + {_MESES_ES}[month(datum.value)]"
+_LABEL_EXPR_MES = f"{_MESES_ES}[month(datum.value)] + ' ' + year(datum.value)"
+
+
+def _axis_fecha(agrupacion: str = "Día") -> alt.Axis:
+    label_expr = {"Semana": _LABEL_EXPR_SEMANA, "Mes": _LABEL_EXPR_MES}.get(agrupacion, _LABEL_EXPR_DIA)
+    return alt.Axis(title="Fecha", labelExpr=label_expr)
+
 
 def _escala_categorica(dominio: list[str]) -> alt.Scale:
     colores = [_PALETTE[_ORDEN_CATEGORICO[i % len(_ORDEN_CATEGORICO)]] for i in range(len(dominio))]
@@ -52,7 +67,7 @@ def volumen_en_el_tiempo(df: pd.DataFrame, agrupacion: str = "Día", incluir_rec
         alt.Chart(agregado)
         .mark_line(point=True, strokeWidth=2)
         .encode(
-            x=alt.X("periodo:T", title="Fecha"),
+            x=alt.X("periodo:T", axis=_axis_fecha(agrupacion)),
             y=alt.Y("volumen_nominal_m3:Q", title="Volumen Nominal [m³]"),
             color=color,
             tooltip=[alt.Tooltip("periodo:T", title="Fecha"), *tooltip_extra,
@@ -62,36 +77,20 @@ def volumen_en_el_tiempo(df: pd.DataFrame, agrupacion: str = "Día", incluir_rec
     )
 
 
-def rendimiento_en_el_tiempo(df: pd.DataFrame, agrupacion: str = "Día") -> alt.Chart:
-    datos = df.copy()
-    datos["periodo"] = _agrupar_periodo(datos, agrupacion)
-
-    def _promedio_ponderado(grupo: pd.DataFrame) -> pd.Series:
-        peso = grupo["volumen_nominal_m3"].sum()
-        if peso == 0:
-            return pd.Series({"Rendimiento Largo %": 0.0, "Rendimiento Volumen %": 0.0})
-        return pd.Series(
-            {
-                "Rendimiento Largo %": (grupo["rend_ln_pct"] * grupo["volumen_nominal_m3"]).sum() / peso * 100,
-                "Rendimiento Volumen %": (grupo["rend_vol_n_pct"] * grupo["volumen_nominal_m3"]).sum() / peso * 100,
-            }
-        )
-
-    agregado = datos.groupby("periodo").apply(_promedio_ponderado, include_groups=False).reset_index()
-    largo = agregado.melt(id_vars="periodo", var_name="métrica", value_name="valor")
+def rendimiento_en_el_tiempo(serie_diaria: pd.DataFrame) -> alt.Chart:
+    """serie_diaria: salida de rendimiento.serie_diaria_rendimiento -- se
+    grafica solo la serie 'Total' (rendimiento nominal promedio entre los
+    RUN/lotes de cada día), no un promedio ponderado por fila."""
+    datos = serie_diaria[serie_diaria["serie"] == "Total"]
 
     return (
-        alt.Chart(largo)
-        .mark_line(point=True, strokeWidth=2)
+        alt.Chart(datos)
+        .mark_line(point=True, strokeWidth=2, color=_PALETTE["blue"])
         .encode(
-            x=alt.X("periodo:T", title="Fecha"),
-            y=alt.Y("valor:Q", title="Rendimiento [%]"),
-            color=alt.Color(
-                "métrica:N", title="",
-                scale=_escala_categorica(["Rendimiento Largo %", "Rendimiento Volumen %"]),
-            ),
-            tooltip=[alt.Tooltip("periodo:T", title="Fecha"), alt.Tooltip("métrica:N", title="Métrica"),
-                     alt.Tooltip("valor:Q", title="Valor [%]", format=".2f")],
+            x=alt.X("fecha:T", axis=_axis_fecha("Día")),
+            y=alt.Y("valor:Q", title="Rendimiento Total Nominal [%]"),
+            tooltip=[alt.Tooltip("fecha:T", title="Fecha"),
+                     alt.Tooltip("valor:Q", title="Rendimiento [%]", format=".1f")],
         )
         .properties(height=300)
     )

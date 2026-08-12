@@ -3,6 +3,7 @@ from datetime import date, timedelta
 import streamlit as st
 
 from scanner_app.dashboard import charts, kpis
+from scanner_app.dashboard.rendimiento import serie_diaria_rendimiento
 from scanner_app.db import get_conn
 from scanner_app.repository import facts_repo, master_repo, runs_repo
 
@@ -86,7 +87,8 @@ with col_izq:
 with col_der:
     with st.container(border=True):
         st.subheader("Rendimiento en el tiempo")
-        st.altair_chart(charts.rendimiento_en_el_tiempo(df, agrupacion=agrupacion), width="stretch")
+        serie_rendimiento = serie_diaria_rendimiento(df)
+        st.altair_chart(charts.rendimiento_en_el_tiempo(serie_rendimiento), width="stretch")
 
 col_izq2, col_der2 = st.columns(2)
 with col_izq2:
