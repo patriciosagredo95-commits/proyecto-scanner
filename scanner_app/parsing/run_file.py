@@ -12,7 +12,6 @@ from scanner_app.config import (
     RUN_META_COL_VALOR,
     RUN_META_FILAS,
     RUN_PRODUCTOS_COL_INICIO,
-    RUN_PRODUCTOS_ESTADO_ACTIVO,
     RUN_PRODUCTOS_FILA_HEADER,
     RUN_PRODUCTOS_FILA_INICIO_DATOS,
     RUN_PRODUCTOS_HEADERS,
@@ -87,27 +86,40 @@ def _leer_metadata(ws) -> MetadataRun:
 
 
 def _leer_productos(ws) -> pd.DataFrame:
+    # El ORDEN de las columnas E:V varía entre archivos reales (129 de 354
+    # archivos reales de "Run 2026/**" traen "Cantidad"/"Volumen [%]"/"Pateador"
+    # en otra posición que el resto -- mismo set de 18 columnas, reordenadas).
+    # Por eso se ubica cada columna por NOMBRE de encabezado, no por posición
+    # fija; solo se exige que el SET de nombres encontrados coincida con el
+    # esperado (protección real ante un cambio de formato del scanner).
+    ancho_tabla = len(RUN_PRODUCTOS_HEADERS)
     headers_encontrados = [
         _normalizar_header(ws.cell(row=RUN_PRODUCTOS_FILA_HEADER, column=RUN_PRODUCTOS_COL_INICIO + i).value)
-        for i in range(len(RUN_PRODUCTOS_HEADERS))
+        for i in range(ancho_tabla)
     ]
     headers_esperados = [_normalizar_header(h) for h in RUN_PRODUCTOS_HEADERS]
-    if headers_encontrados != headers_esperados:
+    if set(headers_encontrados) != set(headers_esperados):
         raise ValueError(
             "La tabla 'Productos' no tiene los encabezados esperados. "
             f"Encontrado: {headers_encontrados!r}. Esperado: {headers_esperados!r}. "
             "Es probable que el formato exportado por el scanner haya cambiado."
         )
 
+    posicion_por_header_normalizado = {
+        header_encontrado: RUN_PRODUCTOS_COL_INICIO + i for i, header_encontrado in enumerate(headers_encontrados)
+    }
     col_index = {
-        header: RUN_PRODUCTOS_COL_INICIO + i for i, header in enumerate(RUN_PRODUCTOS_HEADERS)
+        header: posicion_por_header_normalizado[_normalizar_header(header)] for header in RUN_PRODUCTOS_HEADERS
     }
     col_nombre = col_index["Nombre"]
     col_estado = col_index["Estado"]
+    col_calidad = col_index["Calidad"]
     col_volumen_nominal_m3 = col_index["Volumen Nominal\n[ m³ ] "]
     col_cantidad_pcs = col_index["Cantidad\n[ pcs ] "]
     col_largo_pct = col_index["Largo\n[ % ] "]
     col_largo_m = col_index["Largo\n[ m ] "]
+    col_largo_maximo = col_index["Largo Máximo"]
+    col_largo_minimo = col_index["Largo Mínimo"]
     col_largo_promedio_m = col_index["Largo Promedio\n[ m ] "]
     col_volumen_nominal_pct = col_index["Volumen Nominal\n[ % ] "]
     col_volumen_m3 = col_index["Volumen\n[ m³ ] "]  # solo para el agregado a nivel de run, no se persiste por producto
@@ -119,16 +131,23 @@ def _leer_productos(ws) -> pd.DataFrame:
         if nombre is None or str(nombre).strip() == "":
             break
         cantidad_pcs = ws.cell(row=fila, column=col_cantidad_pcs).value or 0
+        volumen_nominal_m3 = ws.cell(row=fila, column=col_volumen_nominal_m3).value
         estado = ws.cell(row=fila, column=col_estado).value
-        incluido = (str(estado).strip() == RUN_PRODUCTOS_ESTADO_ACTIVO) and cantidad_pcs > 0
+        # Regla de inclusión: solo Cantidad y Volumen Nominal > 0 -- el campo
+        # Estado NO se usa para filtrar (confirmado contra RUN_2830--EJEMPLO,
+        # que incluye una fila "Inactivo" con cantidad y volumen > 0).
+        incluido = cantidad_pcs > 0 and (volumen_nominal_m3 or 0) > 0
         filas.append(
             {
                 "nombre": str(nombre).strip(),
                 "estado": estado,
-                "volumen_nominal_m3": ws.cell(row=fila, column=col_volumen_nominal_m3).value,
+                "calidad": ws.cell(row=fila, column=col_calidad).value,
+                "volumen_nominal_m3": volumen_nominal_m3,
                 "cantidad_pcs": cantidad_pcs,
                 "largo_pct": ws.cell(row=fila, column=col_largo_pct).value,
                 "largo_m": ws.cell(row=fila, column=col_largo_m).value,
+                "largo_maximo": ws.cell(row=fila, column=col_largo_maximo).value,
+                "largo_minimo": ws.cell(row=fila, column=col_largo_minimo).value,
                 "largo_promedio_m": ws.cell(row=fila, column=col_largo_promedio_m).value,
                 "volumen_nominal_pct": ws.cell(row=fila, column=col_volumen_nominal_pct).value,
                 "volumen_m3": ws.cell(row=fila, column=col_volumen_m3).value,

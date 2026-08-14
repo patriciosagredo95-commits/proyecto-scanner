@@ -10,18 +10,14 @@ _INSERT_SQL = text(
     """
     INSERT INTO production_facts (
         run_id, fuente, nombre, fecha, turno, es_rechazo,
-        escuadria, espesor_mm, ancho_mm, largo_nominal_mm,
-        destino, tipo, asignacion, destino_recuperacion,
-        pct_recuperacion, ancho_recuperacion, obs_ancho, obs_espesor,
+        escuadria, espesor_mm, ancho_mm, calidad, tipo, asignacion, destino_recuperacion,
         volumen_nominal_m3, largo_pct, cantidad_pcs, largo_m, largo_promedio_m,
-        volumen_nominal_pct, rend_ln_pct, rend_vol_n_pct
+        largo_maximo, largo_minimo, volumen_nominal_pct
     ) VALUES (
         :run_id, :fuente, :nombre, :fecha, :turno, :es_rechazo,
-        :escuadria, :espesor_mm, :ancho_mm, :largo_nominal_mm,
-        :destino, :tipo, :asignacion, :destino_recuperacion,
-        :pct_recuperacion, :ancho_recuperacion, :obs_ancho, :obs_espesor,
+        :escuadria, :espesor_mm, :ancho_mm, :calidad, :tipo, :asignacion, :destino_recuperacion,
         :volumen_nominal_m3, :largo_pct, :cantidad_pcs, :largo_m, :largo_promedio_m,
-        :volumen_nominal_pct, :rend_ln_pct, :rend_vol_n_pct
+        :largo_maximo, :largo_minimo, :volumen_nominal_pct
     )
     """
 )

@@ -5,6 +5,14 @@ mismo orden en cada render, así una categoría siempre tiene el mismo color."""
 import altair as alt
 import pandas as pd
 
+from scanner_app.config import (
+    ASIGNACION_CO_PRODUCTO_PRINCIPAL,
+    ASIGNACION_CO_PRODUCTO_SECUNDARIO,
+    ASIGNACION_PRODUCTO_PRINCIPAL,
+    ASIGNACION_RECUPERACION,
+    TURNO_NUMERO_A_TEXTO,
+)
+
 _PALETTE = {
     "blue": "#2a78d6",
     "orange": "#eb6834",
@@ -16,6 +24,20 @@ _PALETTE = {
     "red": "#e34948",
 }
 _ORDEN_CATEGORICO = ["blue", "orange", "aqua", "yellow", "magenta", "green", "violet", "red"]
+
+# Color fijo por categoría de Asignación (no por rango/posición) -- reusa los
+# primeros 4 colores del orden categórico validado, así la misma categoría
+# tiene siempre el mismo color en cualquier gráfico de la app.
+_COLOR_ASIGNACION = alt.Scale(
+    domain=[
+        ASIGNACION_PRODUCTO_PRINCIPAL,
+        ASIGNACION_CO_PRODUCTO_PRINCIPAL,
+        ASIGNACION_CO_PRODUCTO_SECUNDARIO,
+        ASIGNACION_RECUPERACION,
+    ],
+    range=[_PALETTE["blue"], _PALETTE["orange"], _PALETTE["aqua"], _PALETTE["yellow"]],
+)
+_ORDEN_TURNO = list(TURNO_NUMERO_A_TEXTO.values())
 
 # Vega expression functions (day/date/month/year) leen la fecha en hora local,
 # igual que el formato por defecto que reemplazan -- Vega-Lite no trae nombres
@@ -118,10 +140,12 @@ def distribucion_por_dimension(df: pd.DataFrame, dimension: str, metrica: str = 
 
 
 def rendimiento_diario(serie_larga: pd.DataFrame) -> alt.Chart:
-    """serie_larga: columnas fecha, serie ('Total'/'Turno 1'/'Turno 2'), valor
-    [%]. Total en rojo (como en el reporte de referencia), turnos en azul/naranja."""
-    dominio = ["Total", "Turno 1", "Turno 2"]
-    escala = alt.Scale(domain=dominio, range=[_PALETTE["red"], _PALETTE["blue"], _PALETTE["orange"]])
+    """serie_larga: columnas fecha, serie ('Total'/'Turno 1'/'Turno 2'/'Turno 3'),
+    valor [%]. Total en rojo (como en el reporte de referencia), turnos en azul/naranja/aqua."""
+    dominio = ["Total", "Turno 1", "Turno 2", "Turno 3"]
+    escala = alt.Scale(
+        domain=dominio, range=[_PALETTE["red"], _PALETTE["blue"], _PALETTE["orange"], _PALETTE["aqua"]]
+    )
 
     return (
         alt.Chart(serie_larga)
@@ -154,4 +178,147 @@ def top_escuadrias(df: pd.DataFrame, n: int = 10, metrica: str = "volumen_nomina
             tooltip=[alt.Tooltip("escuadria:N", title="Escuadria"), alt.Tooltip(f"{metrica}:Q", format=".2f")],
         )
         .properties(height=max(200, 28 * len(agregado)))
+    )
+
+
+def mix_asignacion_por_escuadria(df: pd.DataFrame, n: int = 12) -> alt.Chart:
+    """Barras 100% apiladas: participación de cada Asignación dentro del
+    Volumen Nominal de cada Escuadria (las n escuadrias de mayor volumen)."""
+    top = (
+        df.groupby("escuadria", as_index=False)["volumen_nominal_m3"]
+        .sum()
+        .sort_values("volumen_nominal_m3", ascending=False)
+        .head(n)["escuadria"]
+        .tolist()
+    )
+    agregado = (
+        df[df["escuadria"].isin(top)]
+        .groupby(["escuadria", "asignacion"], as_index=False)["volumen_nominal_m3"]
+        .sum()
+    )
+
+    return (
+        alt.Chart(agregado)
+        .mark_bar()
+        .encode(
+            x=alt.X("volumen_nominal_m3:Q", title="Participación del Volumen Nominal", stack="normalize", axis=alt.Axis(format="%")),
+            y=alt.Y("escuadria:N", sort=top, title="Escuadria"),
+            color=alt.Color("asignacion:N", title="Asignación", scale=_COLOR_ASIGNACION),
+            order=alt.Order("asignacion:N"),
+            tooltip=[
+                alt.Tooltip("escuadria:N", title="Escuadria"),
+                alt.Tooltip("asignacion:N", title="Asignación"),
+                alt.Tooltip("volumen_nominal_m3:Q", title="Volumen Nominal [m³]", format=".2f"),
+            ],
+        )
+        .properties(height=max(200, 32 * len(top)))
+    )
+
+
+def pareto_destino_recuperacion(df: pd.DataFrame) -> alt.Chart:
+    """Volumen Nominal recuperado por Destino Recuperación, de mayor a menor."""
+    agregado = (
+        df.loc[df["destino_recuperacion"].notna()]
+        .groupby("destino_recuperacion", as_index=False)["volumen_nominal_m3"]
+        .sum()
+        .sort_values("volumen_nominal_m3", ascending=False)
+    )
+
+    return (
+        alt.Chart(agregado)
+        .mark_bar(color=_PALETTE["yellow"], cornerRadiusTopRight=4, cornerRadiusBottomRight=4)
+        .encode(
+            x=alt.X("volumen_nominal_m3:Q", title="Volumen Nominal [m³]"),
+            y=alt.Y("destino_recuperacion:N", sort="-x", title="Destino Recuperación"),
+            tooltip=[
+                alt.Tooltip("destino_recuperacion:N", title="Destino Recuperación"),
+                alt.Tooltip("volumen_nominal_m3:Q", title="Volumen Nominal [m³]", format=".2f"),
+            ],
+        )
+        .properties(height=max(200, 28 * len(agregado)))
+    )
+
+
+def ranking_operador(df_ranking: pd.DataFrame, metrica: str = "volumen_nominal_m3") -> alt.Chart:
+    """df_ranking: salida de kpis.ranking_operador."""
+    titulos = {"volumen_nominal_m3": "Volumen Nominal [m³]", "rendimiento_pct": "Rendimiento [%]"}
+    formatos = {"volumen_nominal_m3": ".2f", "rendimiento_pct": ".1f"}
+    agregado = df_ranking.sort_values(metrica, ascending=False)
+
+    return (
+        alt.Chart(agregado)
+        .mark_bar(color=_PALETTE["blue"], cornerRadiusTopRight=4, cornerRadiusBottomRight=4)
+        .encode(
+            x=alt.X(f"{metrica}:Q", title=titulos[metrica]),
+            y=alt.Y("operador:N", sort="-x", title="Operador"),
+            tooltip=[
+                alt.Tooltip("operador:N", title="Operador"),
+                alt.Tooltip(f"{metrica}:Q", title=titulos[metrica], format=formatos[metrica]),
+            ],
+        )
+        .properties(height=max(200, 28 * len(agregado)))
+    )
+
+
+def rendimiento_por_turno_semanal(serie: pd.DataFrame) -> alt.Chart:
+    """serie: salida de rendimiento.serie_semanal_rendimiento_por_turno --
+    barras agrupadas por semana para comparar el desempeño de los 3 turnos
+    período a período."""
+    escala = alt.Scale(
+        domain=_ORDEN_TURNO, range=[_PALETTE["blue"], _PALETTE["aqua"], _PALETTE["orange"]][: len(_ORDEN_TURNO)]
+    )
+
+    return (
+        alt.Chart(serie)
+        .mark_bar()
+        .encode(
+            x=alt.X("semana:T", axis=_axis_fecha("Semana"), title="Semana"),
+            xOffset="turno_label:N",
+            y=alt.Y("valor:Q", title="Rendimiento [%]"),
+            color=alt.Color("turno_label:N", title="Turno", scale=escala, sort=_ORDEN_TURNO),
+            tooltip=[
+                alt.Tooltip("semana:T", title="Semana"),
+                alt.Tooltip("turno_label:N", title="Turno"),
+                alt.Tooltip("valor:Q", title="Rendimiento [%]", format=".1f"),
+            ],
+        )
+        .properties(height=320)
+    )
+
+
+def rendimiento_por_asignacion_diario(serie: pd.DataFrame) -> alt.Chart:
+    """serie: salida de rendimiento.serie_diaria_por_asignacion -- comportamiento
+    en el tiempo de Producto Principal / Co-Producto Principal / Co-Producto
+    Secundario / Recuperación."""
+    return (
+        alt.Chart(serie)
+        .mark_line(point=True, strokeWidth=2)
+        .encode(
+            x=alt.X("fecha:T", axis=_axis_fecha("Día")),
+            y=alt.Y("valor:Q", title="Rendimiento [%]"),
+            color=alt.Color("asignacion:N", title="Asignación", scale=_COLOR_ASIGNACION),
+            tooltip=[
+                alt.Tooltip("fecha:T", title="Fecha"),
+                alt.Tooltip("asignacion:N", title="Asignación"),
+                alt.Tooltip("valor:Q", title="Rendimiento [%]", format=".1f"),
+            ],
+        )
+        .properties(height=350)
+    )
+
+
+def throughput_por_turno(df_throughput: pd.DataFrame) -> alt.Chart:
+    """df_throughput: salida de kpis.throughput_por_turno."""
+    return (
+        alt.Chart(df_throughput)
+        .mark_bar(color=_PALETTE["blue"], cornerRadiusTopRight=4, cornerRadiusBottomRight=4)
+        .encode(
+            x=alt.X("turno_label:N", title="Turno", sort=_ORDEN_TURNO),
+            y=alt.Y("throughput_m3_h:Q", title="Throughput [m³ nominal / hora]"),
+            tooltip=[
+                alt.Tooltip("turno_label:N", title="Turno"),
+                alt.Tooltip("throughput_m3_h:Q", title="m³ nominal / hora", format=".2f"),
+            ],
+        )
+        .properties(height=300)
     )

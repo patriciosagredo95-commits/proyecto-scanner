@@ -1,15 +1,28 @@
 #!/usr/bin/env python
-"""Aplica el esquema, carga el histórico ('Base de datos Scanner.xlsx') y,
-opcionalmente, los RUN_*.xlsx de ejemplo, en una base de datos PostgreSQL.
+"""Aplica el esquema y carga los archivos RUN_*.xlsx reales (recursivo) en una
+base de datos PostgreSQL. Ya no depende de 'Base de datos Scanner.xlsx' -- toda
+la clasificación (Escuadria, Tipo, Asignación, Destino Recuperación, Calidad)
+se deriva automáticamente del contenido de cada RUN (ver
+scanner_app/ingest/clasificador.py).
 
 Uso:
-    python scripts/seed_inicial.py --database-url postgresql+psycopg2://... \
-        --incluir-runs-ejemplo --no-interactive
+    # Reset completo (DESTRUCTIVO) + recarga de todo Run 2026/**:
+    python scripts/seed_inicial.py --database-url postgresql+psycopg2://... --reset
+
+    # Dry-run (sin tocar la base, solo valida que todo parsea/clasifica):
+    python scripts/seed_inicial.py --dry-run
 
 Es un script CLI independiente de st.secrets -- recibe la URL de conexión por
 argumento o por la variable de entorno DATABASE_URL, no depende del runtime
 de Streamlit. Reusa exactamente el mismo pipeline (parsing/ingest) que usará
 la app, para validar que funciona de punta a punta.
+
+Archivos "-Defects-" (334 de los 688 reales en Run 2026/**) no son RUN de
+producción -- es un reporte distinto (códigos de defecto, sin tabla
+"Productos") -- se excluyen por nombre antes de intentar parsearlos. Cuando
+dos archivos comparten el mismo RUN interno (4 casos reales, duplicados/
+reexportados), se conserva el primero por orden alfabético de ruta y el resto
+se omite.
 """
 
 import argparse
@@ -21,125 +34,103 @@ from sqlalchemy import create_engine, text
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scanner_app.config import CAMPOS_ASIGNACION_TEXTO  # noqa: E402
-from scanner_app.ingest import master_resolver, validator  # noqa: E402
+from scanner_app.ingest import validator  # noqa: E402
+from scanner_app.ingest.clasificador import clasificar_run  # noqa: E402
 from scanner_app.ingest.loader import ingest_run  # noqa: E402
 from scanner_app.parsing.filename import parse_filename  # noqa: E402
-from scanner_app.parsing.historico_file import (  # noqa: E402
-    build_facts_desde_historico,
-    build_master_desde_historico,
-    load_historico,
-)
 from scanner_app.parsing.run_file import parse_run_file  # noqa: E402
-from scanner_app.repository import facts_repo, master_repo, runs_repo  # noqa: E402
-
-_CAMPOS_MAESTRA_PLACEHOLDER = [
-    "escuadria", "espesor_mm", "ancho_mm", "largo_nominal_mm",
-    "destino", "tipo", "asignacion", "destino_recuperacion",
-    "pct_recuperacion", "ancho_recuperacion", "obs_ancho", "obs_espesor",
-]
+from scanner_app.repository import runs_repo  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
         "--database-url",
         default=os.environ.get("DATABASE_URL"),
         help="URL de conexión SQLAlchemy (ej. postgresql+psycopg2://user:pass@host/db). "
-        "Si se omite, se usa la variable de entorno DATABASE_URL.",
+        "Si se omite, se usa la variable de entorno DATABASE_URL. No se requiere con --dry-run.",
     )
     parser.add_argument(
-        "--proyecto-dir",
-        default=str(Path(__file__).resolve().parent.parent),
-        help="Carpeta donde están 'Base de datos Scanner.xlsx' y los RUN_*.xlsx.",
+        "--run-dir",
+        default=str(Path(__file__).resolve().parent.parent / "Run 2026"),
+        help="Carpeta a recorrer recursivamente buscando RUN_*.xlsx.",
     )
     parser.add_argument(
-        "--historico",
-        default="Base de datos Scanner.xlsx",
-        help="Nombre del archivo histórico dentro de --proyecto-dir.",
-    )
-    parser.add_argument(
-        "--incluir-runs-ejemplo",
+        "--reset",
         action="store_true",
-        help="Además del histórico, carga los RUN_*.xlsx encontrados en --proyecto-dir.",
+        help="DESTRUCTIVO: borra production_facts, runs y master_products antes de aplicar "
+        "el schema y recargar. schema.sql en sí NUNCA borra nada -- este flag es la única "
+        "vía de reset, para que un re-run accidental sin --reset jamás pierda datos.",
     )
     parser.add_argument(
-        "--no-interactive",
+        "--dry-run",
         action="store_true",
-        help="Para nombres nuevos detectados en los RUN de ejemplo: crea un registro "
-        "placeholder con pendiente_revision=True en vez de pedir los datos por consola.",
+        help="Parsea y clasifica todos los archivos candidatos sin conectarse a la base ni escribir nada.",
     )
     return parser.parse_args()
 
 
 def aplicar_schema(engine) -> None:
     schema_sql = (Path(__file__).resolve().parent.parent / "scanner_app" / "schema.sql").read_text(encoding="utf-8")
-    # Se ejecuta el archivo completo en una sola llamada (protocolo simple de
-    # psycopg2, sin parámetros bindeados) en vez de partir por ";" -- partir
-    # a mano es frágil apenas un comentario SQL contiene un punto y coma.
     with engine.begin() as conn:
         conn.exec_driver_sql(schema_sql)
     print("[schema] schema.sql aplicado.")
 
 
-def cargar_historico(engine, ruta_historico: Path) -> None:
+def resetear(engine) -> None:
     with engine.begin() as conn:
-        ya_cargado = conn.execute(
-            text("SELECT count(*) FROM production_facts WHERE fuente = 'historico'")
-        ).scalar_one()
-    if ya_cargado > 0:
-        print(f"[historico] Ya hay {ya_cargado} filas históricas cargadas, se omite (idempotente).")
-        return
-
-    df_historico = load_historico(ruta_historico)
-    df_maestra = build_master_desde_historico(df_historico)
-    df_facts = build_facts_desde_historico(df_historico)
-
-    with engine.begin() as conn:
-        master_repo.bulk_upsert(conn, df_maestra)
-        facts_repo.bulk_insert_facts(conn, df_facts)
-
-    print(
-        f"[historico] {len(df_historico)} filas históricas cargadas "
-        f"({len(df_maestra)} nombres únicos en la tabla maestra)."
-    )
+        conn.exec_driver_sql("DROP TABLE IF EXISTS production_facts, runs, master_products CASCADE")
+    print("[reset] production_facts, runs y master_products eliminadas.")
 
 
-def _pedir_asignacion_por_consola(nombre: str) -> dict:
-    print(f"\nProducto nuevo: '{nombre}' -- ingrese los valores de asignación (Enter para dejar vacío):")
-    datos = {}
-    for campo in _CAMPOS_MAESTRA_PLACEHOLDER:
-        valor = input(f"  {campo}: ").strip()
-        datos[campo] = valor if valor else None
-    return datos
+def encontrar_archivos(run_dir: Path) -> list[Path]:
+    if not run_dir.exists():
+        return []
+    return sorted(f for f in run_dir.glob("**/*.xlsx") if "defect" not in f.name.lower())
 
 
-def cargar_runs_ejemplo(engine, proyecto_dir: Path, no_interactive: bool) -> None:
-    archivos_run = sorted(proyecto_dir.glob("RUN_*.xlsx"))
-    if not archivos_run:
-        print("[runs] No se encontraron archivos RUN_*.xlsx en la carpeta del proyecto.")
-        return
+def cargar_runs(engine, archivos: list[Path], dry_run: bool) -> None:
+    run_numero_a_archivo: dict[int, str] = {}
+    cargados = omitidos = con_error = 0
 
-    cargados, omitidos, con_error = 0, 0, 0
-    for ruta in archivos_run:
+    for ruta in archivos:
+        nombre_parseado = parse_filename(ruta.name)
         try:
-            nombre_parseado = parse_filename(ruta.name)
+            archivo_parseado = parse_run_file(ruta)
         except ValueError as exc:
-            print(f"[runs] ERROR parseando nombre de archivo '{ruta.name}': {exc}")
+            print(f"[runs] ERROR parseando '{ruta.name}': {exc}")
             con_error += 1
             continue
 
-        with engine.begin() as conn:
-            if runs_repo.exists_run_numero(conn, nombre_parseado.run_numero):
-                print(f"[runs] RUN_{nombre_parseado.run_numero} ya existe, se omite (idempotente).")
-                omitidos += 1
-                continue
+        run_numero = archivo_parseado.metadata.run_numero_interno
+        if run_numero in run_numero_a_archivo:
+            print(f"[runs] RUN_{run_numero} ('{ruta.name}') duplica a '{run_numero_a_archivo[run_numero]}', se omite.")
+            omitidos += 1
+            continue
+        run_numero_a_archivo[run_numero] = ruta.name
 
+        if dry_run:
             try:
-                archivo_parseado = parse_run_file(ruta)
-            except ValueError as exc:
-                print(f"[runs] ERROR parseando contenido de '{ruta.name}': {exc}")
+                productos_incluidos = archivo_parseado.productos.loc[archivo_parseado.productos["incluido"]]
+                if productos_incluidos.empty:
+                    raise ValueError("todas las filas tienen cantidad y/o volumen nominal 0")
+                if archivo_parseado.metadata.comienzo is None:
+                    raise ValueError("falta el campo 'Comienzo' en la metadata")
+                from scanner_app.config import normalizar_turno
+
+                if normalizar_turno(archivo_parseado.metadata.turno_texto) is None:
+                    raise ValueError(f"turno no reconocido: {archivo_parseado.metadata.turno_texto!r}")
+                clasificar_run(productos_incluidos, nombre_parseado.escuadria_archivo)
+                cargados += 1
+            except Exception as exc:  # noqa: BLE001
+                print(f"[runs] ERROR clasificando '{ruta.name}': {exc}")
                 con_error += 1
+            continue
+
+        with engine.connect() as conn:
+            if runs_repo.exists_run_numero(conn, run_numero):
+                print(f"[runs] RUN_{run_numero} ya existe en la base, se omite.")
+                omitidos += 1
                 continue
 
             resultado = validator.validar_run(conn, nombre_parseado, archivo_parseado, permitir_duplicado=True)
@@ -150,64 +141,57 @@ def cargar_runs_ejemplo(engine, proyecto_dir: Path, no_interactive: bool) -> Non
             for advertencia in resultado.advertencias:
                 print(f"[runs] Advertencia en '{ruta.name}': {advertencia}")
 
-            nuevos = master_resolver.nombres_nuevos(conn, archivo_parseado.productos)
-            asignaciones_manuales = {}
-            if nuevos and no_interactive:
-                for nombre in nuevos:
-                    master_repo.upsert(
-                        conn,
-                        {
-                            "nombre": nombre,
-                            **{campo: None for campo in _CAMPOS_MAESTRA_PLACEHOLDER},
-                            "fecha_referencia": nombre_parseado.fecha,
-                            "origen": "manual",
-                            "pendiente_revision": True,
-                        },
-                    )
-                print(f"[runs] '{ruta.name}': {len(nuevos)} producto(s) nuevo(s) creados como pendiente_revision.")
-            elif nuevos:
-                for nombre in nuevos:
-                    asignaciones_manuales[nombre] = _pedir_asignacion_por_consola(nombre)
-
-            run_id = ingest_run(conn, nombre_parseado, archivo_parseado, asignaciones_manuales)
-            print(f"[runs] '{ruta.name}' cargado como run_id={run_id}.")
+            # commit/rollback explícitos (estilo "commit as you go" de
+            # SQLAlchemy 2.0) -- si ingest_run falla a mitad de camino, hay
+            # que hacer rollback antes de seguir con el próximo archivo (si se
+            # atrapa la excepción DENTRO de un `with engine.begin()`, el
+            # context manager no ve la excepción y comitea igual lo que
+            # ingest_run ya haya escrito antes de fallar).
+            try:
+                run_id = ingest_run(conn, nombre_parseado, archivo_parseado)
+            except Exception as exc:  # noqa: BLE001
+                conn.rollback()
+                print(f"[runs] ERROR cargando '{ruta.name}': {exc}")
+                con_error += 1
+                continue
+            conn.commit()
+            print(f"[runs] '{ruta.name}' cargado como run_id={run_id} (RUN_{run_numero}).")
             cargados += 1
 
-    print(f"[runs] Resumen: {cargados} cargados, {omitidos} omitidos (duplicados), {con_error} con error.")
+    modo = "clasificados" if dry_run else "cargados"
+    print(f"\n[runs] Resumen: {cargados} {modo}, {omitidos} omitidos (duplicados), {con_error} con error.")
 
 
 def main() -> None:
     args = parse_args()
+    run_dir = Path(args.run_dir)
+    archivos = encontrar_archivos(run_dir)
+    print(f"[runs] {len(archivos)} archivo(s) candidatos (excluye '-Defects-') encontrados en '{run_dir}'.")
+
+    if args.dry_run:
+        cargar_runs(None, archivos, dry_run=True)
+        return
+
     if not args.database_url:
         print("Error: falta --database-url (o la variable de entorno DATABASE_URL).", file=sys.stderr)
         sys.exit(1)
 
-    proyecto_dir = Path(args.proyecto_dir)
-    ruta_historico = proyecto_dir / args.historico
-    if not ruta_historico.exists():
-        print(f"Error: no se encontró el archivo histórico en '{ruta_historico}'.", file=sys.stderr)
-        sys.exit(1)
-
     engine = create_engine(args.database_url)
 
+    if args.reset:
+        resetear(engine)
     aplicar_schema(engine)
-    cargar_historico(engine, ruta_historico)
-
-    if args.incluir_runs_ejemplo:
-        cargar_runs_ejemplo(engine, proyecto_dir, args.no_interactive)
+    cargar_runs(engine, archivos, dry_run=False)
 
     with engine.begin() as conn:
         total_facts = conn.execute(text("SELECT count(*) FROM production_facts")).scalar_one()
         total_master = conn.execute(text("SELECT count(*) FROM master_products")).scalar_one()
-        total_pendientes = conn.execute(
-            text("SELECT count(*) FROM master_products WHERE pendiente_revision")
-        ).scalar_one()
         total_runs = conn.execute(text("SELECT count(*) FROM runs")).scalar_one()
 
     print(
         "\n=== Resumen final ===\n"
         f"production_facts: {total_facts}\n"
-        f"master_products:  {total_master} ({total_pendientes} pendientes de revisión)\n"
+        f"master_products:  {total_master}\n"
         f"runs:             {total_runs}"
     )
 

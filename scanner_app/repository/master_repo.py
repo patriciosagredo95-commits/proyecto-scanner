@@ -6,38 +6,26 @@ plano (scripts/seed_inicial.py)."""
 import pandas as pd
 from sqlalchemy import text
 
-from scanner_app.config import CAMPOS_ASIGNACION_TEXTO
 from scanner_app.db_utils import filas_a_dataframe, registros_sql
 
 _UPSERT_SQL = text(
     """
     INSERT INTO master_products (
-        nombre, escuadria, espesor_mm, ancho_mm, largo_nominal_mm,
-        destino, tipo, asignacion, destino_recuperacion,
-        pct_recuperacion, ancho_recuperacion, obs_ancho, obs_espesor,
-        fecha_referencia, origen, pendiente_revision
+        nombre, escuadria, espesor_mm, ancho_mm, calidad, tipo,
+        asignacion, destino_recuperacion, fecha_referencia
     ) VALUES (
-        :nombre, :escuadria, :espesor_mm, :ancho_mm, :largo_nominal_mm,
-        :destino, :tipo, :asignacion, :destino_recuperacion,
-        :pct_recuperacion, :ancho_recuperacion, :obs_ancho, :obs_espesor,
-        :fecha_referencia, :origen, :pendiente_revision
+        :nombre, :escuadria, :espesor_mm, :ancho_mm, :calidad, :tipo,
+        :asignacion, :destino_recuperacion, :fecha_referencia
     )
     ON CONFLICT (nombre) DO UPDATE SET
         escuadria = EXCLUDED.escuadria,
         espesor_mm = EXCLUDED.espesor_mm,
         ancho_mm = EXCLUDED.ancho_mm,
-        largo_nominal_mm = EXCLUDED.largo_nominal_mm,
-        destino = EXCLUDED.destino,
+        calidad = EXCLUDED.calidad,
         tipo = EXCLUDED.tipo,
         asignacion = EXCLUDED.asignacion,
         destino_recuperacion = EXCLUDED.destino_recuperacion,
-        pct_recuperacion = EXCLUDED.pct_recuperacion,
-        ancho_recuperacion = EXCLUDED.ancho_recuperacion,
-        obs_ancho = EXCLUDED.obs_ancho,
-        obs_espesor = EXCLUDED.obs_espesor,
         fecha_referencia = EXCLUDED.fecha_referencia,
-        origen = EXCLUDED.origen,
-        pendiente_revision = EXCLUDED.pendiente_revision,
         actualizado_en = now()
     """
 )
@@ -59,51 +47,14 @@ def existen_nombres(conn, nombres: list[str]) -> set[str]:
     return {r[0] for r in rows}
 
 
-_COLUMNAS_CLASIFICACION = [
-    "nombre", "escuadria", "espesor_mm", "ancho_mm", "largo_nominal_mm",
-    "destino", "tipo", "asignacion", "destino_recuperacion",
-    "pct_recuperacion", "ancho_recuperacion", "obs_ancho", "obs_espesor",
-]
-
-
-def get_clasificacion_por_nombres(conn, nombres: list[str]) -> pd.DataFrame:
-    """Clasificación VIGENTE (hoy) para un conjunto de nombres -- se usa al
-    ingestar un RUN para tomar una foto de esta clasificación y grabarla en
-    production_facts (ver scanner_app/ingest/loader.py)."""
-    if not nombres:
-        return pd.DataFrame(columns=_COLUMNAS_CLASIFICACION)
-    columnas = ", ".join(_COLUMNAS_CLASIFICACION)
-    rows = conn.execute(
-        text(f"SELECT {columnas} FROM master_products WHERE nombre = ANY(:nombres)"),
-        {"nombres": list(nombres)},
-    ).mappings().all()
-    return filas_a_dataframe(rows)
-
-
 def get_all(conn) -> pd.DataFrame:
     rows = conn.execute(text("SELECT * FROM master_products ORDER BY nombre")).mappings().all()
-    return filas_a_dataframe(rows)
-
-
-def get_pendientes_revision(conn) -> pd.DataFrame:
-    rows = conn.execute(
-        text("SELECT * FROM master_products WHERE pendiente_revision ORDER BY nombre")
-    ).mappings().all()
     return filas_a_dataframe(rows)
 
 
 def get_escuadrias_distintas(conn) -> list[str]:
     rows = conn.execute(
         text("SELECT DISTINCT escuadria FROM master_products WHERE escuadria IS NOT NULL ORDER BY escuadria")
-    ).all()
-    return [r[0] for r in rows]
-
-
-def get_valores_distintos(conn, campo: str) -> list[str]:
-    if campo not in CAMPOS_ASIGNACION_TEXTO:
-        raise ValueError(f"Campo no permitido para lookup de valores distintos: {campo}")
-    rows = conn.execute(
-        text(f"SELECT DISTINCT {campo} FROM master_products WHERE {campo} IS NOT NULL ORDER BY {campo}")
     ).all()
     return [r[0] for r in rows]
 
@@ -116,37 +67,3 @@ def bulk_upsert(conn, df_maestra: pd.DataFrame) -> None:
     registros = registros_sql(df_maestra)
     if registros:
         conn.execute(_UPSERT_SQL, registros)
-
-
-_SYNC_FACTS_INCOMPLETOS_SQL = text(
-    """
-    UPDATE production_facts f
-    SET escuadria = m.escuadria,
-        espesor_mm = m.espesor_mm,
-        ancho_mm = m.ancho_mm,
-        largo_nominal_mm = m.largo_nominal_mm,
-        destino = m.destino,
-        tipo = m.tipo,
-        asignacion = m.asignacion,
-        destino_recuperacion = m.destino_recuperacion,
-        pct_recuperacion = m.pct_recuperacion,
-        ancho_recuperacion = m.ancho_recuperacion,
-        obs_ancho = m.obs_ancho,
-        obs_espesor = m.obs_espesor
-    FROM master_products m
-    WHERE f.nombre = m.nombre
-      AND f.escuadria IS NULL
-      AND m.nombre = ANY(:nombres)
-    """
-)
-
-
-def sync_facts_incompletos(conn, nombres: list[str]) -> None:
-    """Actualiza production_facts.* (clasificación) para filas que quedaron con
-    escuadria NULL -- la foto que se tomó cuando el Nombre todavía era
-    'pendiente_revision' sin datos. No toca filas que ya tienen una
-    clasificación real (esas son fotos históricas legítimas y no deben
-    cambiar retroactivamente, ver comentario en schema.sql)."""
-    if not nombres:
-        return
-    conn.execute(_SYNC_FACTS_INCOMPLETOS_SQL, {"nombres": list(nombres)})

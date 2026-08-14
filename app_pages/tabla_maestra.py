@@ -6,9 +6,10 @@ from scanner_app.repository import master_repo
 
 st.title("Tabla Maestra de Asignación")
 st.caption(
-    "Clasificación por Nombre de producto (Escuadria, Destino, Tipo, Asignación, etc.) "
-    "usada para resolver automáticamente cada carga de RUN. Los nombres 'pendientes de "
-    "revisión' fueron creados sin datos completos y conviene completarlos aquí."
+    "Clasificación por Nombre de producto (Escuadria, Tipo, Asignación, etc.), calculada "
+    "automáticamente a partir del contenido de cada RUN cargado. Refleja siempre la última "
+    "carga que incluyó ese Nombre -- una edición manual acá es un override temporal: se "
+    "recalculará apenas se cargue un nuevo RUN que vuelva a incluir ese producto."
 )
 
 conn = get_conn()
@@ -17,17 +18,14 @@ with conn.session as s:
     df = master_repo.get_all(s)
 
 if df.empty:
-    st.info("La tabla maestra está vacía. Cargue primero el histórico con scripts/seed_inicial.py.")
+    st.info("La tabla maestra está vacía. Cargue primero archivos RUN en 'Cargar RUN'.")
     st.stop()
 
-solo_pendientes = st.checkbox("Mostrar solo pendientes de revisión", value=bool(df["pendiente_revision"].any()))
-df_mostrado = df[df["pendiente_revision"]] if solo_pendientes else df
+st.caption(f"{len(df)} producto(s).")
 
-st.caption(f"{len(df_mostrado)} de {len(df)} productos mostrados.")
-
-columnas_no_editables = ["nombre", "origen", "creado_en", "actualizado_en"]
+columnas_no_editables = ["nombre", "creado_en", "actualizado_en"]
 editado = st.data_editor(
-    df_mostrado,
+    df,
     key="editor_tabla_maestra",
     hide_index=True,
     num_rows="fixed",
@@ -53,10 +51,6 @@ if st.button("Guardar cambios", type="primary", icon=":material/save:"):
     with conn.session as s:
         for _, fila in editado.iterrows():
             master_repo.upsert(s, _fila_a_registro(fila))
-        # Filas de production_facts que se tomaron cuando el Nombre aún era
-        # 'pendiente_revision' (sin escuadria) se refrescan con la
-        # clasificación recién completada -- ver master_repo.sync_facts_incompletos.
-        master_repo.sync_facts_incompletos(s, editado["nombre"].tolist())
         s.commit()
     st.cache_data.clear()
     st.success("Cambios guardados.")

@@ -2,29 +2,34 @@
 ('Reporte Scanner a la fecha.xlsx', hoja 'Dashboard Escuadria'/'Analisis Mes').
 
 Fórmulas reconstruidas a partir de las fórmulas reales del Excel (GETPIVOTDATA
-y AVERAGE sobre pivots) y verificadas contra los datos reales:
+y AVERAGE sobre pivots):
 
-- Rendimiento Total/Turno = promedio, entre todos los lotes (Fecha, Turno,
-  Escuadria), de la SUMA de REND VOL N % de ese lote. Los lotes sin filas de
-  la categoría cuentan como 0 (no se excluyen del promedio) -- así reproduce
-  el comportamiento de un pivot con AVERAGE sobre una columna de SUMIFS.
+- Rendimiento Total/Turno = promedio, entre todos los RUN, de la SUMA de
+  Volumen Nominal [%] de ese RUN (las filas incluidas de un mismo RUN suman
+  ~100% de su propio volumen nominal). Los RUN sin filas de la categoría
+  cuentan como 0 (no se excluyen del promedio) -- así reproduce el
+  comportamiento de un pivot con AVERAGE sobre una columna de SUMIFS.
+  IMPORTANTE: la unidad de "lote" es el RUN (run_id), no la combinación
+  (Fecha, Turno, Escuadria) -- dos RUN distintos pueden compartir esa misma
+  combinación (ej. dos cargas separadas el mismo día/turno/escuadria), y
+  sumar sus % antes de promediar da un "rendimiento" que supera el 100%.
 - Rendimiento a Blank/CTK = % del Volumen Nominal total atribuible a ese Tipo
-  (fracción simple, no promedio por lote).
-- % Bajo Espesor = % del Volumen Nominal total con Obs Espesor='Bajo Espesor'.
+  (fracción simple, no promedio por RUN).
 - Rendimiento por Asignación = igual método que Total/Turno, pero filtrando a
-  esa Asignación antes de sumar por lote.
-
-Validado contra el histórico real: Total, Turno 1/2 y Blank coinciden con el
-Excel de referencia dentro de ~1 punto porcentual. El desglose por Asignación
-específica quedó con una diferencia de algunos puntos que no se pudo cerrar
-del todo (el Excel de referencia parece ser una foto de los datos en otro
-momento, ligeramente distinta al histórico actual) -- se documenta como
-limitación conocida, no se debe asumir precisión decimal exacta ahí.
+  esa Asignación antes de sumar por RUN.
 """
 
 from dataclasses import dataclass
 
 import pandas as pd
+
+from scanner_app.config import (
+    ASIGNACION_CO_PRODUCTO_PRINCIPAL,
+    ASIGNACION_CO_PRODUCTO_SECUNDARIO,
+    ASIGNACION_PRODUCTO_PRINCIPAL,
+    ASIGNACION_RECUPERACION,
+    TURNO_NUMERO_A_TEXTO,
+)
 
 
 @dataclass
@@ -32,9 +37,9 @@ class RendimientoMensual:
     total: float
     turno_1: float
     turno_2: float
+    turno_3: float
     blank: float
     ctk: float
-    pct_bajo_espesor: float
     producto_principal: float
     co_producto_principal: float
     co_producto_secundario: float
@@ -43,23 +48,28 @@ class RendimientoMensual:
 
 def promedio_por_lote(
     df: pd.DataFrame,
-    agrupar_por: tuple[str, ...] = ("fecha", "turno", "escuadria"),
+    agrupar_por: tuple[str, ...] = ("run_id",),
     filtro_col: str | None = None,
     filtro_val: str | None = None,
 ) -> float:
+    """Promedio, entre todos los RUN presentes en `df`, de la SUMA de
+    Volumen Nominal [%] de ese RUN (o de la porción filtrada por
+    filtro_col/filtro_val). `agrupar_por` por defecto es ("run_id",) -- cada
+    RUN es un lote; no cambiar a columnas como (fecha, turno, escuadria), que
+    no identifican un RUN de forma única (ver docstring del módulo)."""
     if df.empty:
         return 0.0
     agrupar_por = [c for c in agrupar_por if c in df.columns]
     todos_lotes = list(df.groupby(agrupar_por).groups.keys())
     datos = df if filtro_col is None else df[df[filtro_col] == filtro_val]
-    suma_por_lote = datos.groupby(agrupar_por)["rend_vol_n_pct"].sum()
+    suma_por_lote = datos.groupby(agrupar_por)["volumen_nominal_pct"].sum()
     suma_por_lote = suma_por_lote.reindex(todos_lotes, fill_value=0)
     return float(suma_por_lote.mean() * 100) if len(suma_por_lote) else 0.0
 
 
 def calcular_rendimiento_mensual(df: pd.DataFrame) -> RendimientoMensual:
     if df.empty:
-        return RendimientoMensual(*([0.0] * 10))
+        return RendimientoMensual(*([0.0] * 11))
 
     vol_total = float(df["volumen_nominal_m3"].sum())
 
@@ -70,30 +80,72 @@ def calcular_rendimiento_mensual(df: pd.DataFrame) -> RendimientoMensual:
 
     return RendimientoMensual(
         total=promedio_por_lote(df),
-        turno_1=promedio_por_lote(df[df["turno"] == 1], agrupar_por=("fecha", "escuadria")),
-        turno_2=promedio_por_lote(df[df["turno"] == 2], agrupar_por=("fecha", "escuadria")),
+        turno_1=promedio_por_lote(df[df["turno"] == 1]),
+        turno_2=promedio_por_lote(df[df["turno"] == 2]),
+        turno_3=promedio_por_lote(df[df["turno"] == 3]),
         blank=pct_del_volumen("tipo", "BLANK"),
         ctk=pct_del_volumen("tipo", "CTK"),
-        pct_bajo_espesor=pct_del_volumen("obs_espesor", "Bajo Espesor"),
-        producto_principal=promedio_por_lote(df, filtro_col="asignacion", filtro_val="Producto Principal"),
-        co_producto_principal=promedio_por_lote(df, filtro_col="asignacion", filtro_val="Co-Producto Principal"),
-        co_producto_secundario=promedio_por_lote(df, filtro_col="asignacion", filtro_val="Co-Producto Secundario"),
-        recuperacion=promedio_por_lote(df, filtro_col="asignacion", filtro_val="Recuperación"),
+        producto_principal=promedio_por_lote(df, filtro_col="asignacion", filtro_val=ASIGNACION_PRODUCTO_PRINCIPAL),
+        co_producto_principal=promedio_por_lote(df, filtro_col="asignacion", filtro_val=ASIGNACION_CO_PRODUCTO_PRINCIPAL),
+        co_producto_secundario=promedio_por_lote(df, filtro_col="asignacion", filtro_val=ASIGNACION_CO_PRODUCTO_SECUNDARIO),
+        recuperacion=promedio_por_lote(df, filtro_col="asignacion", filtro_val=ASIGNACION_RECUPERACION),
     )
 
 
 def serie_diaria_rendimiento(df: pd.DataFrame) -> pd.DataFrame:
-    """Formato largo (fecha, serie, valor) para graficar Total/Turno 1/Turno 2
-    día a día -- cada punto promedia los lotes (turno, escuadria) [o solo
-    escuadria, para las series de turno] presentes ESE día."""
+    """Formato largo (fecha, serie, valor) para graficar Total/Turno 1/Turno 2/
+    Turno 3 día a día -- cada punto promedia los RUN presentes ESE día
+    (o, para las series de turno, los RUN de ese turno ese día)."""
     if df.empty:
         return pd.DataFrame(columns=["fecha", "serie", "valor"])
 
     filas = []
     for fecha, grupo in df.groupby("fecha"):
-        filas.append({"fecha": fecha, "serie": "Total", "valor": promedio_por_lote(grupo, agrupar_por=("turno", "escuadria"))})
-        for turno, etiqueta in ((1, "Turno 1"), (2, "Turno 2")):
+        filas.append({"fecha": fecha, "serie": "Total", "valor": promedio_por_lote(grupo)})
+        for turno, etiqueta in ((1, "Turno 1"), (2, "Turno 2"), (3, "Turno 3")):
             sub = grupo[grupo["turno"] == turno]
             if not sub.empty:
-                filas.append({"fecha": fecha, "serie": etiqueta, "valor": promedio_por_lote(sub, agrupar_por=("escuadria",))})
+                filas.append({"fecha": fecha, "serie": etiqueta, "valor": promedio_por_lote(sub)})
+    return pd.DataFrame(filas)
+
+
+def serie_semanal_rendimiento_por_turno(df: pd.DataFrame) -> pd.DataFrame:
+    """Formato largo (semana, turno_label, valor) -- rendimiento promedio por
+    RUN de cada turno, agregado por semana, para comparar el desempeño de los
+    3 turnos período a período (en vez del acumulado único que muestran los
+    KPI de Rendimiento Turno 1/2/3)."""
+    if df.empty:
+        return pd.DataFrame(columns=["semana", "turno_label", "valor"])
+
+    datos = df.copy()
+    datos["semana"] = pd.to_datetime(datos["fecha"]).dt.to_period("W").dt.start_time
+
+    filas = []
+    for semana, grupo_semana in datos.groupby("semana"):
+        for turno, etiqueta in TURNO_NUMERO_A_TEXTO.items():
+            sub = grupo_semana[grupo_semana["turno"] == turno]
+            if not sub.empty:
+                filas.append({"semana": semana, "turno_label": etiqueta, "valor": promedio_por_lote(sub)})
+    return pd.DataFrame(filas)
+
+
+def serie_diaria_por_asignacion(df: pd.DataFrame) -> pd.DataFrame:
+    """Formato largo (fecha, asignacion, valor) -- mismo método que
+    serie_diaria_rendimiento (promedio por RUN) pero desglosado por categoría
+    de Asignación en vez de por turno."""
+    if df.empty:
+        return pd.DataFrame(columns=["fecha", "asignacion", "valor"])
+
+    categorias = [
+        ASIGNACION_PRODUCTO_PRINCIPAL,
+        ASIGNACION_CO_PRODUCTO_PRINCIPAL,
+        ASIGNACION_CO_PRODUCTO_SECUNDARIO,
+        ASIGNACION_RECUPERACION,
+    ]
+    filas = []
+    for fecha, grupo in df.groupby("fecha"):
+        for categoria in categorias:
+            sub = grupo[grupo["asignacion"] == categoria]
+            if not sub.empty:
+                filas.append({"fecha": fecha, "asignacion": categoria, "valor": promedio_por_lote(sub)})
     return pd.DataFrame(filas)

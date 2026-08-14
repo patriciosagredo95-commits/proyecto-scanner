@@ -1,82 +1,47 @@
-"""Parseo del nombre de archivo RUN.
+"""Extracción best-effort de señales del nombre de archivo RUN.
 
-Formato: RUN_XXXX--YYYY-MM-DD--ESCUADRIA-DESCRIPCION[-TURNO-DIA|-TURNO-NOCHE][-RECHAZO].xlsx
+RUN/Fecha/Turno ya NO se leen del nombre de archivo -- vienen de la metadata
+interna del archivo (tabla izquierda, ver parsing/run_file.py), que es estable
+sin importar qué convención de nombre se haya usado al exportar. Esto es
+necesario porque, de los 688 archivos RUN reales, 152 usan una convención de
+nombre distinta a "RUN_XXXX--YYYY-MM-DD--...(--)" (ej.
+"RUN_2073--16_04_26_TURNO_DÍA_48_75_..._ok.xlsx").
 
-Verificado contra los 4 archivos de ejemplo reales, incluyendo el caso donde
-coexisten los sufijos -TURNO-DIA y -RECHAZO (el orden de estrictura importa:
--RECHAZO se quita primero porque va más a la derecha).
+Lo que queda acá es puramente informativo / para warnings blandos: nunca
+bloquea la carga de un archivo.
 """
 
-import re
 from dataclasses import dataclass
-from datetime import date, datetime
 
-from scanner_app.config import FILENAME_REGEX, TURNO_DIA, TURNO_NOCHE
-
-_ESCUADRIA_REGEX = re.compile(r"^(?P<escuadria>[\d.,]+[xX][\d.,]+)-(?P<descripcion>.+)$")
-_SUFIJO_RECHAZO = re.compile(r"-RECHAZO$", re.IGNORECASE)
-_SUFIJO_TURNO = re.compile(r"-TURNO-(DIA|D[ÍI]A|NOCHE)$", re.IGNORECASE)
+from scanner_app.config import ESCUADRIA_EN_ARCHIVO_REGEX
 
 
 @dataclass(frozen=True)
 class NombreArchivoRun:
-    run_numero: int
-    fecha: date
-    escuadria_archivo: str | None
-    descripcion_archivo: str
-    turno_archivo: int | None
-    es_rechazo: bool
     nombre_archivo: str
+    escuadria_archivo: str | None
+    es_rechazo: bool
 
 
 def parse_filename(nombre_archivo: str) -> NombreArchivoRun:
-    """Extrae run_numero, fecha, escuadria, descripción, turno y flag de rechazo
-    del nombre de archivo. Lanza ValueError si el nombre no matchea el patrón
-    esperado (regla dura de validación)."""
-    match = re.match(FILENAME_REGEX, nombre_archivo)
-    if not match:
-        raise ValueError(
-            f"El nombre de archivo '{nombre_archivo}' no matchea el patrón esperado "
-            "'RUN_XXXX--YYYY-MM-DD--ESCUADRIA-DESCRIPCION.xlsx'."
-        )
+    """Nunca lanza excepción -- cualquier nombre de archivo .xlsx es aceptado."""
+    es_rechazo = "rechazo" in nombre_archivo.lower()
 
-    run_numero = int(match.group("run_numero"))
-    fecha = datetime.strptime(match.group("fecha"), "%Y-%m-%d").date()
-    resto = match.group("resto")
-
-    es_rechazo = bool(_SUFIJO_RECHAZO.search(resto))
-    if es_rechazo:
-        resto = _SUFIJO_RECHAZO.sub("", resto)
-
-    turno_archivo = None
-    turno_match = _SUFIJO_TURNO.search(resto)
-    if turno_match:
-        texto_turno = turno_match.group(1).lower()
-        turno_archivo = TURNO_NOCHE if texto_turno == "noche" else TURNO_DIA
-        resto = _SUFIJO_TURNO.sub("", resto)
-
-    escuadria_match = _ESCUADRIA_REGEX.match(resto)
-    if escuadria_match:
-        escuadria_archivo = escuadria_match.group("escuadria")
-        descripcion_archivo = escuadria_match.group("descripcion")
-    else:
-        escuadria_archivo = None
-        descripcion_archivo = resto
+    match = ESCUADRIA_EN_ARCHIVO_REGEX.search(nombre_archivo)
+    escuadria_archivo = None
+    if match:
+        espesor_texto = match.group(1).replace("_", ",").replace(".", ",")
+        escuadria_archivo = f"{espesor_texto}x{match.group(2)}"
 
     return NombreArchivoRun(
-        run_numero=run_numero,
-        fecha=fecha,
-        escuadria_archivo=escuadria_archivo,
-        descripcion_archivo=descripcion_archivo,
-        turno_archivo=turno_archivo,
-        es_rechazo=es_rechazo,
         nombre_archivo=nombre_archivo,
+        escuadria_archivo=escuadria_archivo,
+        es_rechazo=es_rechazo,
     )
 
 
 def normalizar_escuadria(token: str) -> str:
-    """Normaliza un token de escuadria del nombre de archivo (ej. '20.5X143')
-    al formato usado en la tabla maestra (ej. '20,5x143'), para comparaciones
-    blandas. No garantiza un match exacto -- es solo para advertencias, no para
-    validación dura."""
+    """Normaliza un token de escuadria (ej. '20.5X143') al formato usado
+    internamente ('20,5x143'), para comparaciones blandas. No garantiza un
+    match exacto -- es solo para advertencias, no para validación dura."""
     return token.replace(".", ",").lower()
