@@ -111,10 +111,11 @@ with col_der3:
             )
             st.altair_chart(charts.ranking_operador(ranking, metrica_operador or "volumen_nominal_m3"), width="stretch")
 
-with st.container(border=True):
-    st.subheader("Cortes en el tiempo")
-    st.caption("Total Cortes por RUN, agrupado según el período elegido en el sidebar.")
-    st.altair_chart(charts.cortes_en_el_tiempo(df, agrupacion=agrupacion), width="stretch")
+if "total_cortes" in df.columns:  # ausente si la base no corrió aún la migración de schema.sql
+    with st.container(border=True):
+        st.subheader("Cortes en el tiempo")
+        st.caption("Total Cortes por RUN, agrupado según el período elegido en el sidebar.")
+        st.altair_chart(charts.cortes_en_el_tiempo(df, agrupacion=agrupacion), width="stretch")
 
 if df["destino_recuperacion"].notna().any():
     with st.container(border=True):
