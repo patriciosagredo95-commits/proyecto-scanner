@@ -1,8 +1,7 @@
-from datetime import date, timedelta
-
 import streamlit as st
 
 from scanner_app.dashboard import charts, kpis
+from scanner_app.dashboard.filtros import selector_rango_fechas
 from scanner_app.dashboard.rendimiento import serie_diaria_rendimiento
 from scanner_app.db import get_conn
 from scanner_app.repository import facts_repo, master_repo, runs_repo
@@ -33,9 +32,10 @@ def cargar_datos(fecha_desde, fecha_hasta, escuadria, turno, incluir_rechazo):
 
 with st.sidebar:
     st.header("Filtros")
-    hoy = date.today()
-    rango_fechas = st.date_input(
-        "Rango de fechas", value=(hoy - timedelta(days=30), hoy), format="YYYY-MM-DD"
+    fecha_desde, fecha_hasta = selector_rango_fechas(
+        "dash",
+        {"Últimos 7 días": 7, "Últimos 30 días": 30, "Este mes": None},
+        default="Últimos 30 días",
     )
     escuadrias = ["Todas", *_cargar_escuadrias()]
     escuadria_sel = st.selectbox("Escuadria", escuadrias)
@@ -46,7 +46,6 @@ with st.sidebar:
         st.cache_data.clear()
         st.rerun()
 
-fecha_desde, fecha_hasta = (rango_fechas if len(rango_fechas) == 2 else (rango_fechas[0], rango_fechas[0]))
 escuadria_param = None if escuadria_sel == "Todas" else escuadria_sel
 turno_param = {"Día": 1, "Noche": 2, "Tarde": 3}.get(turno_sel)
 
@@ -65,19 +64,24 @@ col3.metric("N° de RUNs", f"{resumen.num_runs:,}")
 
 st.divider()
 
-col_izq, col_der = st.columns(2)
-with col_izq:
+with st.container(border=True):
+    st.subheader("Volumen Nominal en el tiempo")
+    st.altair_chart(charts.volumen_en_el_tiempo(df, agrupacion=agrupacion), width="stretch")
+
+with st.container(border=True):
+    st.subheader("Metros Lineales en el tiempo")
+    st.altair_chart(charts.metros_lineales_en_el_tiempo(df, agrupacion=agrupacion), width="stretch")
+
+with st.container(border=True):
+    st.subheader("Rendimiento en el tiempo")
+    serie_rendimiento = serie_diaria_rendimiento(df)
+    st.altair_chart(charts.rendimiento_en_el_tiempo(serie_rendimiento), width="stretch")
+
+if "total_cortes" in df.columns:  # ausente si la base no corrió aún la migración de schema.sql
     with st.container(border=True):
-        st.subheader("Volumen Nominal en el tiempo")
-        st.altair_chart(
-            charts.volumen_en_el_tiempo(df, agrupacion=agrupacion, incluir_rechazo=incluir_rechazo),
-            width="stretch",
-        )
-with col_der:
-    with st.container(border=True):
-        st.subheader("Rendimiento en el tiempo")
-        serie_rendimiento = serie_diaria_rendimiento(df)
-        st.altair_chart(charts.rendimiento_en_el_tiempo(serie_rendimiento), width="stretch")
+        st.subheader("Cortes en el tiempo")
+        st.caption("Total Cortes por RUN, agrupado según el período elegido en el sidebar.")
+        st.altair_chart(charts.cortes_en_el_tiempo(df, agrupacion=agrupacion), width="stretch")
 
 col_izq2, col_der2 = st.columns(2)
 with col_izq2:
@@ -110,12 +114,6 @@ with col_der3:
                 default="volumen_nominal_m3", key="metrica_operador",
             )
             st.altair_chart(charts.ranking_operador(ranking, metrica_operador or "volumen_nominal_m3"), width="stretch")
-
-if "total_cortes" in df.columns:  # ausente si la base no corrió aún la migración de schema.sql
-    with st.container(border=True):
-        st.subheader("Cortes en el tiempo")
-        st.caption("Total Cortes por RUN, agrupado según el período elegido en el sidebar.")
-        st.altair_chart(charts.cortes_en_el_tiempo(df, agrupacion=agrupacion), width="stretch")
 
 if df["destino_recuperacion"].notna().any():
     with st.container(border=True):

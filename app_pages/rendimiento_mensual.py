@@ -1,8 +1,7 @@
-from datetime import date, timedelta
-
 import streamlit as st
 
 from scanner_app.dashboard import charts
+from scanner_app.dashboard.filtros import selector_rango_fechas
 from scanner_app.dashboard.rendimiento import (
     calcular_rendimiento_mensual,
     serie_diaria_por_asignacion,
@@ -36,9 +35,10 @@ def cargar_datos(fecha_desde, fecha_hasta, escuadria, incluir_rechazo):
 
 with st.sidebar:
     st.header("Filtros")
-    hoy = date.today()
-    rango_fechas = st.date_input(
-        "Rango de fechas", value=(hoy - timedelta(days=120), hoy), format="YYYY-MM-DD", key="rm_fechas"
+    fecha_desde, fecha_hasta = selector_rango_fechas(
+        "rm",
+        {"Últimos 30 días": 30, "Últimos 90 días": 90, "Últimos 120 días": 120},
+        default="Últimos 120 días",
     )
     escuadria_sel = st.selectbox("Escuadria", ["Todas", *_cargar_escuadrias()], key="rm_escuadria")
     incluir_rechazo = st.checkbox("Incluir corridas de Rechazo", value=False, key="rm_rechazo")
@@ -46,7 +46,6 @@ with st.sidebar:
         st.cache_data.clear()
         st.rerun()
 
-fecha_desde, fecha_hasta = (rango_fechas if len(rango_fechas) == 2 else (rango_fechas[0], rango_fechas[0]))
 escuadria_param = None if escuadria_sel == "Todas" else escuadria_sel
 
 df = cargar_datos(fecha_desde, fecha_hasta, escuadria_param, incluir_rechazo)

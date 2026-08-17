@@ -67,43 +67,71 @@ def _agrupar_periodo(df: pd.DataFrame, agrupacion: str) -> pd.Series:
     return fechas
 
 
-def volumen_en_el_tiempo(df: pd.DataFrame, agrupacion: str = "Día", incluir_rechazo: bool = True) -> alt.Chart:
-    datos = df.copy()
-    datos["periodo"] = _agrupar_periodo(datos, agrupacion)
+_TEXT_MUTED = "#44474d"  # tinta neutra -- las etiquetas nunca llevan el color de la serie
 
-    if incluir_rechazo:
-        datos["categoria"] = datos["es_rechazo"].map({True: "Rechazo", False: "Producción"})
-        agregado = datos.groupby(["periodo", "categoria"], as_index=False)["volumen_nominal_m3"].sum()
-        color = alt.Color(
-            "categoria:N", title="", scale=_escala_categorica(["Producción", "Rechazo"])
-        )
-        tooltip_extra = [alt.Tooltip("categoria:N", title="Categoría")]
-    else:
-        agregado = datos.groupby("periodo", as_index=False)["volumen_nominal_m3"].sum()
-        color = alt.value(_PALETTE["blue"])
-        tooltip_extra = []
 
+def _capa_etiquetas(agregado: pd.DataFrame, x: str, y: str, formato: str, x_tipo: str = "T") -> alt.Chart:
+    """Etiqueta de valor sobre cada punto, en tinta neutra (nunca el color de
+    la serie) y desplazada arriba del punto para no toparse con la línea."""
     return (
         alt.Chart(agregado)
-        .mark_line(point=True, strokeWidth=2)
+        .mark_text(dy=-12, fontSize=11, color=_TEXT_MUTED)
+        .encode(x=f"{x}:{x_tipo}", y=f"{y}:Q", text=alt.Text(f"{y}:Q", format=formato))
+    )
+
+
+def volumen_en_el_tiempo(df: pd.DataFrame, agrupacion: str = "Día") -> alt.Chart:
+    """Solo Producción -- las corridas de Rechazo se excluyen siempre, sin
+    importar el filtro 'Incluir corridas de Rechazo' del sidebar (ese filtro
+    solo controla los demás gráficos/KPIs de la página)."""
+    datos = df[~df["es_rechazo"]].copy()
+    datos["periodo"] = _agrupar_periodo(datos, agrupacion)
+    agregado = datos.groupby("periodo", as_index=False)["volumen_nominal_m3"].sum()
+
+    linea = (
+        alt.Chart(agregado)
+        .mark_line(point=True, strokeWidth=2, color=_PALETTE["blue"])
         .encode(
             x=alt.X("periodo:T", axis=_axis_fecha(agrupacion)),
             y=alt.Y("volumen_nominal_m3:Q", title="Volumen Nominal [m³]"),
-            color=color,
-            tooltip=[alt.Tooltip("periodo:T", title="Fecha"), *tooltip_extra,
+            tooltip=[alt.Tooltip("periodo:T", title="Fecha"),
                      alt.Tooltip("volumen_nominal_m3:Q", title="Volumen Nominal [m³]", format=".2f")],
         )
-        .properties(height=300)
     )
+    etiquetas = _capa_etiquetas(agregado, "periodo", "volumen_nominal_m3", ".2f")
+    return alt.layer(linea, etiquetas).properties(height=300)
+
+
+def metros_lineales_en_el_tiempo(df: pd.DataFrame, agrupacion: str = "Día") -> alt.Chart:
+    """Solo Producción -- las corridas de Rechazo se excluyen siempre, sin
+    importar el filtro 'Incluir corridas de Rechazo' del sidebar (ese filtro
+    solo controla los demás gráficos/KPIs de la página)."""
+    datos = df[~df["es_rechazo"]].copy()
+    datos["periodo"] = _agrupar_periodo(datos, agrupacion)
+    agregado = datos.groupby("periodo", as_index=False)["largo_m"].sum()
+
+    linea = (
+        alt.Chart(agregado)
+        .mark_line(point=True, strokeWidth=2, color=_PALETTE["aqua"])
+        .encode(
+            x=alt.X("periodo:T", axis=_axis_fecha(agrupacion)),
+            y=alt.Y("largo_m:Q", title="Metros Lineales [m]"),
+            tooltip=[alt.Tooltip("periodo:T", title="Fecha"),
+                     alt.Tooltip("largo_m:Q", title="Metros Lineales [m]", format=",.2f")],
+        )
+    )
+    etiquetas = _capa_etiquetas(agregado, "periodo", "largo_m", ",.0f")
+    return alt.layer(linea, etiquetas).properties(height=300)
 
 
 def rendimiento_en_el_tiempo(serie_diaria: pd.DataFrame) -> alt.Chart:
     """serie_diaria: salida de rendimiento.serie_diaria_rendimiento -- se
     grafica solo la serie 'Total' (rendimiento nominal promedio entre los
     RUN/lotes de cada día), no un promedio ponderado por fila."""
-    datos = serie_diaria[serie_diaria["serie"] == "Total"]
+    datos = serie_diaria[serie_diaria["serie"] == "Total"].copy()
+    datos["valor_label"] = datos["valor"].round(1).astype(str) + "%"
 
-    return (
+    linea = (
         alt.Chart(datos)
         .mark_line(point=True, strokeWidth=2, color=_PALETTE["blue"])
         .encode(
@@ -112,8 +140,13 @@ def rendimiento_en_el_tiempo(serie_diaria: pd.DataFrame) -> alt.Chart:
             tooltip=[alt.Tooltip("fecha:T", title="Fecha"),
                      alt.Tooltip("valor:Q", title="Rendimiento [%]", format=".1f")],
         )
-        .properties(height=300)
     )
+    etiquetas = (
+        alt.Chart(datos)
+        .mark_text(dy=-12, fontSize=11, color=_TEXT_MUTED)
+        .encode(x="fecha:T", y="valor:Q", text="valor_label:N")
+    )
+    return alt.layer(linea, etiquetas).properties(height=300)
 
 
 def distribucion_por_dimension(df: pd.DataFrame, dimension: str, metrica: str = "volumen_nominal_m3") -> alt.Chart:
@@ -187,7 +220,7 @@ def cortes_en_el_tiempo(df: pd.DataFrame, agrupacion: str = "Día") -> alt.Chart
     datos["periodo"] = _agrupar_periodo(datos, agrupacion)
     agregado = datos.groupby("periodo", as_index=False)["total_cortes"].sum()
 
-    return (
+    linea = (
         alt.Chart(agregado)
         .mark_line(point=True, strokeWidth=2, color=_PALETTE["violet"])
         .encode(
@@ -196,8 +229,9 @@ def cortes_en_el_tiempo(df: pd.DataFrame, agrupacion: str = "Día") -> alt.Chart
             tooltip=[alt.Tooltip("periodo:T", title="Fecha"),
                      alt.Tooltip("total_cortes:Q", title="Cortes", format=",.0f")],
         )
-        .properties(height=300)
     )
+    etiquetas = _capa_etiquetas(agregado, "periodo", "total_cortes", ",.0f")
+    return alt.layer(linea, etiquetas).properties(height=300)
 
 
 def mix_asignacion_por_escuadria(df: pd.DataFrame, n: int = 12) -> alt.Chart:
