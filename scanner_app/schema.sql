@@ -36,11 +36,15 @@ CREATE TABLE IF NOT EXISTS runs (
     largo_total_m                 NUMERIC(12,2),
     volumen_total_m3              NUMERIC(12,4),
     volumen_nominal_total_m3       NUMERIC(12,4),
+    total_cortes                   INTEGER,
     filas_activas                 INTEGER NOT NULL DEFAULT 0,
     filas_excluidas               INTEGER NOT NULL DEFAULT 0,
     productos_nuevos              INTEGER NOT NULL DEFAULT 0,
     creado_en                     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Migración idempotente para bases ya creadas antes de que existiera esta
+-- columna (CREATE TABLE IF NOT EXISTS de arriba no altera tablas existentes).
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS total_cortes INTEGER;
 CREATE INDEX IF NOT EXISTS idx_runs_fecha ON runs(fecha);
 CREATE INDEX IF NOT EXISTS idx_runs_es_rechazo ON runs(es_rechazo);
 
@@ -83,6 +87,7 @@ CREATE INDEX IF NOT EXISTS idx_facts_fecha_turno ON production_facts(fecha, turn
 DROP VIEW IF EXISTS v_production;
 CREATE VIEW v_production AS
 SELECT f.*,
-       r.run_numero, r.operador, r.escuadria_archivo
+       r.run_numero, r.operador, r.escuadria_archivo,
+       r.cantidad_total_pcs, r.total_cortes
 FROM production_facts f
 LEFT JOIN runs r ON r.id = f.run_id;

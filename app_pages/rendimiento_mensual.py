@@ -2,15 +2,14 @@ from datetime import date, timedelta
 
 import streamlit as st
 
-from scanner_app.dashboard import charts, kpis
+from scanner_app.dashboard import charts
 from scanner_app.dashboard.rendimiento import (
     calcular_rendimiento_mensual,
     serie_diaria_por_asignacion,
     serie_diaria_rendimiento,
-    serie_semanal_rendimiento_por_turno,
 )
 from scanner_app.db import get_conn
-from scanner_app.repository import facts_repo, master_repo, runs_repo
+from scanner_app.repository import facts_repo, master_repo
 
 st.title("Rendimiento Mensual Scanner")
 st.caption(
@@ -33,12 +32,6 @@ def cargar_datos(fecha_desde, fecha_hasta, escuadria, incluir_rechazo):
         return facts_repo.load_production(
             s, fecha_desde=fecha_desde, fecha_hasta=fecha_hasta, escuadria=escuadria, incluir_rechazo=incluir_rechazo
         )
-
-
-@st.cache_data(ttl="2m")
-def cargar_runs(fecha_desde, fecha_hasta):
-    with get_conn().session as s:
-        return runs_repo.load_runs_en_rango(s, fecha_desde=fecha_desde, fecha_hasta=fecha_hasta)
 
 
 with st.sidebar:
@@ -96,25 +89,3 @@ with st.container(border=True):
     st.caption("Producto Principal / Co-Producto Principal / Co-Producto Secundario / Recuperación, día a día.")
     serie_asignacion = serie_diaria_por_asignacion(df)
     st.altair_chart(charts.rendimiento_por_asignacion_diario(serie_asignacion), width="stretch")
-
-st.divider()
-
-col_izq2, col_der2 = st.columns(2)
-with col_izq2:
-    with st.container(border=True):
-        st.subheader("Rendimiento por Turno, semana a semana")
-        serie_turno_semanal = serie_semanal_rendimiento_por_turno(df)
-        st.altair_chart(charts.rendimiento_por_turno_semanal(serie_turno_semanal), width="stretch")
-with col_der2:
-    with st.container(border=True):
-        st.subheader("Throughput por Turno")
-        st.caption(
-            "m³ nominal producidos por hora de proceso (hora_fin - hora_comienzo de cada run). "
-            "No respeta el filtro de Escuadria (es a nivel de run, no de producto)."
-        )
-        df_runs = cargar_runs(fecha_desde, fecha_hasta)
-        throughput = kpis.throughput_por_turno(df_runs)
-        if throughput.empty:
-            st.info("No hay runs con horas de comienzo/fin registradas para los filtros seleccionados.")
-        else:
-            st.altair_chart(charts.throughput_por_turno(throughput), width="stretch")

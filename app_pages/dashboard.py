@@ -58,11 +58,10 @@ if df.empty:
 
 resumen = kpis.calcular_kpis(df)
 
-col1, col2, col3, col4 = st.container(horizontal=True).columns(4)
+col1, col2, col3 = st.container(horizontal=True).columns(3)
 col1.metric("Volumen Nominal [m³]", f"{resumen.volumen_nominal_m3:,.2f}")
 col2.metric("Rendimiento Vol. Nominal [%]", f"{resumen.rendimiento_pct:,.1f}%")
-col3.metric("Cantidad [pcs]", f"{resumen.cantidad_pcs:,}")
-col4.metric("N° de RUNs", f"{resumen.num_runs:,}")
+col3.metric("N° de RUNs", f"{resumen.num_runs:,}")
 
 st.divider()
 
@@ -111,6 +110,11 @@ with col_der3:
                 default="volumen_nominal_m3", key="metrica_operador",
             )
             st.altair_chart(charts.ranking_operador(ranking, metrica_operador or "volumen_nominal_m3"), width="stretch")
+
+with st.container(border=True):
+    st.subheader("Cortes en el tiempo")
+    st.caption("Total Cortes por RUN, agrupado según el período elegido en el sidebar.")
+    st.altair_chart(charts.cortes_en_el_tiempo(df, agrupacion=agrupacion), width="stretch")
 
 if df["destino_recuperacion"].notna().any():
     with st.container(border=True):

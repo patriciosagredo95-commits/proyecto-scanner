@@ -5,7 +5,6 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from scanner_app.config import TURNO_NUMERO_A_TEXTO
 from scanner_app.dashboard.rendimiento import promedio_por_lote
 
 
@@ -63,24 +62,3 @@ def ranking_operador(df: pd.DataFrame) -> pd.DataFrame:
         for operador, grupo in datos.groupby("operador")
     ]
     return pd.DataFrame(filas).sort_values("volumen_nominal_m3", ascending=False).reset_index(drop=True)
-
-
-def throughput_por_turno(df_runs: pd.DataFrame) -> pd.DataFrame:
-    """m³ nominal por hora de proceso, por turno -- usa hora_comienzo/hora_fin
-    y volumen_nominal_total_m3 de cada run (scanner_app.repository.runs_repo.
-    load_runs_en_rango). Excluye runs sin ambas horas o con duración <= 0
-    (dato corrupto/incompleto -- no debería pasar, pero no se asume)."""
-    columnas = ["turno_label", "throughput_m3_h"]
-    if df_runs.empty:
-        return pd.DataFrame(columns=columnas)
-
-    datos = df_runs.dropna(subset=["hora_comienzo", "hora_fin"]).copy()
-    duracion_h = (pd.to_datetime(datos["hora_fin"]) - pd.to_datetime(datos["hora_comienzo"])).dt.total_seconds() / 3600
-    datos = datos.loc[duracion_h > 0].copy()
-    duracion_h = duracion_h.loc[duracion_h > 0]
-    if datos.empty:
-        return pd.DataFrame(columns=columnas)
-
-    datos["throughput_m3_h"] = datos["volumen_nominal_total_m3"] / duracion_h
-    datos["turno_label"] = datos["turno"].map(TURNO_NUMERO_A_TEXTO)
-    return datos.groupby("turno_label", as_index=False)["throughput_m3_h"].mean()

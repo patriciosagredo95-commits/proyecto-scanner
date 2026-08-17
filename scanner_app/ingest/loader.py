@@ -78,6 +78,7 @@ def ingest_run(
         "largo_total_m": float(productos_incluidos["largo_m"].sum()) if len(productos_incluidos) else 0.0,
         "volumen_total_m3": float(productos_incluidos["volumen_m3"].sum()) if len(productos_incluidos) else 0.0,
         "volumen_nominal_total_m3": float(productos_incluidos["volumen_nominal_m3"].sum()) if len(productos_incluidos) else 0.0,
+        "total_cortes": metadata.total_cortes,
         "filas_activas": int(len(productos_incluidos)),
         "filas_excluidas": int(len(archivo_parseado.productos) - len(productos_incluidos)),
         "productos_nuevos": len(nombres_nuevos),

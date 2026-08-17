@@ -28,7 +28,6 @@ from scanner_app.config import (
     ASIGNACION_CO_PRODUCTO_SECUNDARIO,
     ASIGNACION_PRODUCTO_PRINCIPAL,
     ASIGNACION_RECUPERACION,
-    TURNO_NUMERO_A_TEXTO,
 )
 
 
@@ -106,26 +105,6 @@ def serie_diaria_rendimiento(df: pd.DataFrame) -> pd.DataFrame:
             sub = grupo[grupo["turno"] == turno]
             if not sub.empty:
                 filas.append({"fecha": fecha, "serie": etiqueta, "valor": promedio_por_lote(sub)})
-    return pd.DataFrame(filas)
-
-
-def serie_semanal_rendimiento_por_turno(df: pd.DataFrame) -> pd.DataFrame:
-    """Formato largo (semana, turno_label, valor) -- rendimiento promedio por
-    RUN de cada turno, agregado por semana, para comparar el desempeño de los
-    3 turnos período a período (en vez del acumulado único que muestran los
-    KPI de Rendimiento Turno 1/2/3)."""
-    if df.empty:
-        return pd.DataFrame(columns=["semana", "turno_label", "valor"])
-
-    datos = df.copy()
-    datos["semana"] = pd.to_datetime(datos["fecha"]).dt.to_period("W").dt.start_time
-
-    filas = []
-    for semana, grupo_semana in datos.groupby("semana"):
-        for turno, etiqueta in TURNO_NUMERO_A_TEXTO.items():
-            sub = grupo_semana[grupo_semana["turno"] == turno]
-            if not sub.empty:
-                filas.append({"semana": semana, "turno_label": etiqueta, "valor": promedio_por_lote(sub)})
     return pd.DataFrame(filas)
 
 

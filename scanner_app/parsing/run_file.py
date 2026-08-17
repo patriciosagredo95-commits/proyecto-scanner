@@ -15,6 +15,9 @@ from scanner_app.config import (
     RUN_PRODUCTOS_FILA_HEADER,
     RUN_PRODUCTOS_FILA_INICIO_DATOS,
     RUN_PRODUCTOS_HEADERS,
+    RUN_TOTAL_CORTES_ETIQUETA,
+    RUN_TOTAL_CORTES_FILA,
+    RUN_TOTAL_COL_VALOR,
 )
 
 
@@ -26,6 +29,7 @@ class MetadataRun:
     turno_texto: str | None
     comienzo: datetime | None
     fin: datetime | None
+    total_cortes: int
 
 
 @dataclass(frozen=True)
@@ -58,6 +62,30 @@ def _leer_valor_meta(ws, campo: str) -> str | None:
     )
 
 
+def _leer_total_cortes(ws) -> int:
+    """Total de Cortes del RUN completo (bloque 'Total', fila 29 columna A =
+    'Cortes' / columna C = valor -- ver RUN_TOTAL_COL_VALOR). No es una columna
+    de la tabla 'Productos': el archivo no trae el desglose por producto."""
+    etiqueta_en_fila = ws.cell(row=RUN_TOTAL_CORTES_FILA, column=RUN_META_COL_ETIQUETA).value
+    if etiqueta_en_fila is not None and str(etiqueta_en_fila).strip() == RUN_TOTAL_CORTES_ETIQUETA:
+        valor = ws.cell(row=RUN_TOTAL_CORTES_FILA, column=RUN_TOTAL_COL_VALOR).value
+        if valor is not None:
+            return int(valor)
+
+    # Fallback: igual que _leer_valor_meta, escanear toda la columna A.
+    for fila in range(1, ws.max_row + 1):
+        etiqueta = ws.cell(row=fila, column=RUN_META_COL_ETIQUETA).value
+        if etiqueta is not None and str(etiqueta).strip() == RUN_TOTAL_CORTES_ETIQUETA:
+            valor = ws.cell(row=fila, column=RUN_TOTAL_COL_VALOR).value
+            if valor is not None:
+                return int(valor)
+
+    raise ValueError(
+        f"No se encontró la etiqueta '{RUN_TOTAL_CORTES_ETIQUETA}' esperada para el Total de Cortes "
+        f"(ni en la fila {RUN_TOTAL_CORTES_FILA} ni en el resto de la columna A)."
+    )
+
+
 def _parse_datetime(valor) -> datetime | None:
     if valor is None:
         return None
@@ -82,6 +110,7 @@ def _leer_metadata(ws) -> MetadataRun:
         turno_texto=_leer_valor_meta(ws, "turno"),
         comienzo=_parse_datetime(_leer_valor_meta(ws, "comienzo")),
         fin=_parse_datetime(_leer_valor_meta(ws, "fin")),
+        total_cortes=_leer_total_cortes(ws),
     )
 
 

@@ -10,7 +10,6 @@ from scanner_app.config import (
     ASIGNACION_CO_PRODUCTO_SECUNDARIO,
     ASIGNACION_PRODUCTO_PRINCIPAL,
     ASIGNACION_RECUPERACION,
-    TURNO_NUMERO_A_TEXTO,
 )
 
 _PALETTE = {
@@ -37,7 +36,6 @@ _COLOR_ASIGNACION = alt.Scale(
     ],
     range=[_PALETTE["blue"], _PALETTE["orange"], _PALETTE["aqua"], _PALETTE["yellow"]],
 )
-_ORDEN_TURNO = list(TURNO_NUMERO_A_TEXTO.values())
 
 # Vega expression functions (day/date/month/year) leen la fecha en hora local,
 # igual que el formato por defecto que reemplazan -- Vega-Lite no trae nombres
@@ -181,6 +179,27 @@ def top_escuadrias(df: pd.DataFrame, n: int = 10, metrica: str = "volumen_nomina
     )
 
 
+def cortes_en_el_tiempo(df: pd.DataFrame, agrupacion: str = "Día") -> alt.Chart:
+    """Evolución del Total Cortes por período. total_cortes es un dato por RUN
+    (no por fila de producto) -- se deduplica por run_id antes de agrupar por
+    fecha para no contarlo una vez por cada producto de ese run."""
+    datos = df.dropna(subset=["run_id", "total_cortes"]).drop_duplicates("run_id").copy()
+    datos["periodo"] = _agrupar_periodo(datos, agrupacion)
+    agregado = datos.groupby("periodo", as_index=False)["total_cortes"].sum()
+
+    return (
+        alt.Chart(agregado)
+        .mark_line(point=True, strokeWidth=2, color=_PALETTE["violet"])
+        .encode(
+            x=alt.X("periodo:T", axis=_axis_fecha(agrupacion)),
+            y=alt.Y("total_cortes:Q", title="Cortes"),
+            tooltip=[alt.Tooltip("periodo:T", title="Fecha"),
+                     alt.Tooltip("total_cortes:Q", title="Cortes", format=",.0f")],
+        )
+        .properties(height=300)
+    )
+
+
 def mix_asignacion_por_escuadria(df: pd.DataFrame, n: int = 12) -> alt.Chart:
     """Barras 100% apiladas: participación de cada Asignación dentro del
     Volumen Nominal de cada Escuadria (las n escuadrias de mayor volumen)."""
@@ -260,32 +279,6 @@ def ranking_operador(df_ranking: pd.DataFrame, metrica: str = "volumen_nominal_m
     )
 
 
-def rendimiento_por_turno_semanal(serie: pd.DataFrame) -> alt.Chart:
-    """serie: salida de rendimiento.serie_semanal_rendimiento_por_turno --
-    barras agrupadas por semana para comparar el desempeño de los 3 turnos
-    período a período."""
-    escala = alt.Scale(
-        domain=_ORDEN_TURNO, range=[_PALETTE["blue"], _PALETTE["aqua"], _PALETTE["orange"]][: len(_ORDEN_TURNO)]
-    )
-
-    return (
-        alt.Chart(serie)
-        .mark_bar()
-        .encode(
-            x=alt.X("semana:T", axis=_axis_fecha("Semana"), title="Semana"),
-            xOffset="turno_label:N",
-            y=alt.Y("valor:Q", title="Rendimiento [%]"),
-            color=alt.Color("turno_label:N", title="Turno", scale=escala, sort=_ORDEN_TURNO),
-            tooltip=[
-                alt.Tooltip("semana:T", title="Semana"),
-                alt.Tooltip("turno_label:N", title="Turno"),
-                alt.Tooltip("valor:Q", title="Rendimiento [%]", format=".1f"),
-            ],
-        )
-        .properties(height=320)
-    )
-
-
 def rendimiento_por_asignacion_diario(serie: pd.DataFrame) -> alt.Chart:
     """serie: salida de rendimiento.serie_diaria_por_asignacion -- comportamiento
     en el tiempo de Producto Principal / Co-Producto Principal / Co-Producto
@@ -304,21 +297,4 @@ def rendimiento_por_asignacion_diario(serie: pd.DataFrame) -> alt.Chart:
             ],
         )
         .properties(height=350)
-    )
-
-
-def throughput_por_turno(df_throughput: pd.DataFrame) -> alt.Chart:
-    """df_throughput: salida de kpis.throughput_por_turno."""
-    return (
-        alt.Chart(df_throughput)
-        .mark_bar(color=_PALETTE["blue"], cornerRadiusTopRight=4, cornerRadiusBottomRight=4)
-        .encode(
-            x=alt.X("turno_label:N", title="Turno", sort=_ORDEN_TURNO),
-            y=alt.Y("throughput_m3_h:Q", title="Throughput [m³ nominal / hora]"),
-            tooltip=[
-                alt.Tooltip("turno_label:N", title="Turno"),
-                alt.Tooltip("throughput_m3_h:Q", title="m³ nominal / hora", format=".2f"),
-            ],
-        )
-        .properties(height=300)
     )

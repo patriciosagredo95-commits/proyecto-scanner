@@ -53,6 +53,15 @@ RUN_META_FILAS = {
 RUN_META_COL_ETIQUETA = 1
 RUN_META_COL_VALOR = 2
 
+# --- Archivos RUN: bloque "Total" (resumen del run completo, filas 18-91 de
+# la columna A) -- a diferencia del bloque de metadata de arriba (etiqueta en
+# columna A, valor en columna B), acá el layout es etiqueta/unidad/valor en
+# columnas A/B/C. Solo se usa "Cortes" (fila 29, sin unidad en B, valor en C)
+# -- verificado en los 354 archivos RUN reales no-Defects de "Run 2026/**".
+RUN_TOTAL_CORTES_FILA = 29
+RUN_TOTAL_CORTES_ETIQUETA = "Cortes"
+RUN_TOTAL_COL_VALOR = 3
+
 # --- Archivos RUN: tabla "Productos" (lado derecho) ---
 RUN_PRODUCTOS_FILA_HEADER = 2
 RUN_PRODUCTOS_FILA_INICIO_DATOS = 3
