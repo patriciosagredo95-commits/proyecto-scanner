@@ -11,6 +11,7 @@ from scanner_app.config import (
     ASIGNACION_PRODUCTO_PRINCIPAL,
     ASIGNACION_RECUPERACION,
 )
+from scanner_app.dashboard.rendimiento import agrupar_periodo
 
 _PALETTE = {
     "blue": "#2a78d6",
@@ -58,15 +59,6 @@ def _escala_categorica(dominio: list[str]) -> alt.Scale:
     return alt.Scale(domain=dominio, range=colores)
 
 
-def _agrupar_periodo(df: pd.DataFrame, agrupacion: str) -> pd.Series:
-    fechas = pd.to_datetime(df["fecha"])
-    if agrupacion == "Semana":
-        return fechas.dt.to_period("W").dt.start_time
-    if agrupacion == "Mes":
-        return fechas.dt.to_period("M").dt.start_time
-    return fechas
-
-
 _TEXT_MUTED = "#44474d"  # tinta neutra -- las etiquetas nunca llevan el color de la serie
 
 
@@ -85,7 +77,7 @@ def volumen_en_el_tiempo(df: pd.DataFrame, agrupacion: str = "Día") -> alt.Char
     importar el filtro 'Incluir corridas de Rechazo' del sidebar (ese filtro
     solo controla los demás gráficos/KPIs de la página)."""
     datos = df[~df["es_rechazo"]].copy()
-    datos["periodo"] = _agrupar_periodo(datos, agrupacion)
+    datos["periodo"] = agrupar_periodo(datos, agrupacion)
     agregado = datos.groupby("periodo", as_index=False)["volumen_nominal_m3"].sum()
 
     linea = (
@@ -107,7 +99,7 @@ def metros_lineales_en_el_tiempo(df: pd.DataFrame, agrupacion: str = "Día") -> 
     importar el filtro 'Incluir corridas de Rechazo' del sidebar (ese filtro
     solo controla los demás gráficos/KPIs de la página)."""
     datos = df[~df["es_rechazo"]].copy()
-    datos["periodo"] = _agrupar_periodo(datos, agrupacion)
+    datos["periodo"] = agrupar_periodo(datos, agrupacion)
     agregado = datos.groupby("periodo", as_index=False)["largo_m"].sum()
 
     linea = (
@@ -217,7 +209,7 @@ def cortes_en_el_tiempo(df: pd.DataFrame, agrupacion: str = "Día") -> alt.Chart
     (no por fila de producto) -- se deduplica por run_id antes de agrupar por
     fecha para no contarlo una vez por cada producto de ese run."""
     datos = df.dropna(subset=["run_id", "total_cortes"]).drop_duplicates("run_id").copy()
-    datos["periodo"] = _agrupar_periodo(datos, agrupacion)
+    datos["periodo"] = agrupar_periodo(datos, agrupacion)
     agregado = datos.groupby("periodo", as_index=False)["total_cortes"].sum()
 
     linea = (
@@ -332,3 +324,39 @@ def rendimiento_por_asignacion_diario(serie: pd.DataFrame) -> alt.Chart:
         )
         .properties(height=350)
     )
+
+
+_ESCALA_REAL_VS_META = alt.Scale(domain=["Rendimiento Real", "Rendimiento Meta"], range=[_PALETTE["blue"], _PALETTE["red"]])
+
+
+def rendimiento_real_vs_meta(serie_real: pd.DataFrame, meta_pct: float, agrupacion: str = "Día") -> alt.Chart:
+    """serie_real: salida de rendimiento.serie_periodo_rendimiento (columnas
+    periodo, valor) -- Rendimiento Real por período. meta_pct: rendimiento
+    nominal promedio histórico de la escuadria seleccionada, calculado sobre
+    TODOS los datos disponibles -- por eso se dibuja como una línea de
+    referencia constante (mark_rule), no como una serie por período."""
+    real = serie_real.assign(serie="Rendimiento Real")
+    linea_real = (
+        alt.Chart(real)
+        .mark_line(point=True, strokeWidth=2)
+        .encode(
+            x=alt.X("periodo:T", axis=_axis_fecha(agrupacion)),
+            y=alt.Y("valor:Q", title="Rendimiento [%]"),
+            color=alt.Color("serie:N", title="", scale=_ESCALA_REAL_VS_META),
+            tooltip=[alt.Tooltip("periodo:T", title="Fecha"),
+                     alt.Tooltip("valor:Q", title="Rendimiento Real [%]", format=".1f")],
+        )
+    )
+
+    meta = pd.DataFrame({"valor": [meta_pct], "serie": ["Rendimiento Meta"]})
+    linea_meta = (
+        alt.Chart(meta)
+        .mark_rule(strokeWidth=2, strokeDash=[6, 4])
+        .encode(
+            y="valor:Q",
+            color=alt.Color("serie:N", scale=_ESCALA_REAL_VS_META),
+            tooltip=[alt.Tooltip("valor:Q", title="Rendimiento Meta [%]", format=".1f")],
+        )
+    )
+
+    return alt.layer(linea_real, linea_meta).properties(height=350)

@@ -91,6 +91,33 @@ def calcular_rendimiento_mensual(df: pd.DataFrame) -> RendimientoMensual:
     )
 
 
+def agrupar_periodo(df: pd.DataFrame, agrupacion: str) -> pd.Series:
+    """Bucket de fecha según agrupación (Día/Semana/Mes), como el inicio del
+    período correspondiente. Usado tanto para agregaciones de volumen/cortes
+    (charts.py) como para serie_periodo_rendimiento (abajo)."""
+    fechas = pd.to_datetime(df["fecha"])
+    if agrupacion == "Semana":
+        return fechas.dt.to_period("W").dt.start_time
+    if agrupacion == "Mes":
+        return fechas.dt.to_period("M").dt.start_time
+    return fechas
+
+
+def serie_periodo_rendimiento(df: pd.DataFrame, agrupacion: str = "Día") -> pd.DataFrame:
+    """Rendimiento Real por período (Día/Semana/Mes): mismo método que
+    promedio_por_lote (promedio, entre los RUN de ese período, de la SUMA de
+    Volumen Nominal [%] de ese RUN), agregado en columnas (periodo, valor)."""
+    if df.empty:
+        return pd.DataFrame(columns=["periodo", "valor"])
+
+    datos = df.copy()
+    datos["periodo"] = agrupar_periodo(datos, agrupacion)
+    filas = [
+        {"periodo": periodo, "valor": promedio_por_lote(grupo)} for periodo, grupo in datos.groupby("periodo")
+    ]
+    return pd.DataFrame(filas).sort_values("periodo").reset_index(drop=True)
+
+
 def serie_diaria_rendimiento(df: pd.DataFrame) -> pd.DataFrame:
     """Formato largo (fecha, serie, valor) para graficar Total/Turno 1/Turno 2/
     Turno 3 día a día -- cada punto promedia los RUN presentes ESE día
