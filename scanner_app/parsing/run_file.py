@@ -11,10 +11,11 @@ from scanner_app.config import (
     RUN_META_COL_ETIQUETA,
     RUN_META_COL_VALOR,
     RUN_META_FILAS,
+    RUN_PRODUCTOS_ANCHO_MAX,
     RUN_PRODUCTOS_COL_INICIO,
     RUN_PRODUCTOS_FILA_HEADER,
     RUN_PRODUCTOS_FILA_INICIO_DATOS,
-    RUN_PRODUCTOS_HEADERS,
+    RUN_PRODUCTOS_HEADERS_REQUERIDOS,
     RUN_TOTAL_CORTES_ETIQUETA,
     RUN_TOTAL_CORTES_FILA,
     RUN_TOTAL_COL_VALOR,
@@ -40,7 +41,12 @@ class ArchivoRunParseado:
 
 
 def _normalizar_header(valor) -> str:
-    return str(valor).strip() if valor is not None else ""
+    """Colapsa saltos de línea y espacios repetidos a un solo espacio: el archivo
+    trae los encabezados con un salto de línea antes de la unidad y un espacio al
+    final, y así quedan comparables con RUN_PRODUCTOS_HEADERS_REQUERIDOS."""
+    if valor is None:
+        return ""
+    return " ".join(str(valor).split())
 
 
 def _leer_valor_meta(ws, campo: str) -> str | None:
@@ -114,44 +120,48 @@ def _leer_metadata(ws) -> MetadataRun:
     )
 
 
-def _leer_productos(ws) -> pd.DataFrame:
-    # El ORDEN de las columnas E:V varía entre archivos reales (129 de 354
-    # archivos reales de "Run 2026/**" traen "Cantidad"/"Volumen [%]"/"Pateador"
-    # en otra posición que el resto -- mismo set de 18 columnas, reordenadas).
-    # Por eso se ubica cada columna por NOMBRE de encabezado, no por posición
-    # fija; solo se exige que el SET de nombres encontrados coincida con el
-    # esperado (protección real ante un cambio de formato del scanner).
-    ancho_tabla = len(RUN_PRODUCTOS_HEADERS)
-    headers_encontrados = [
-        _normalizar_header(ws.cell(row=RUN_PRODUCTOS_FILA_HEADER, column=RUN_PRODUCTOS_COL_INICIO + i).value)
-        for i in range(ancho_tabla)
-    ]
-    headers_esperados = [_normalizar_header(h) for h in RUN_PRODUCTOS_HEADERS]
-    if set(headers_encontrados) != set(headers_esperados):
-        raise ValueError(
-            "La tabla 'Productos' no tiene los encabezados esperados. "
-            f"Encontrado: {headers_encontrados!r}. Esperado: {headers_esperados!r}. "
-            "Es probable que el formato exportado por el scanner haya cambiado."
-        )
+def _leer_columnas_productos(ws) -> dict[str, int]:
+    """Mapea nombre de encabezado normalizado -> número de columna.
 
-    posicion_por_header_normalizado = {
-        header_encontrado: RUN_PRODUCTOS_COL_INICIO + i for i, header_encontrado in enumerate(headers_encontrados)
-    }
-    col_index = {
-        header: posicion_por_header_normalizado[_normalizar_header(header)] for header in RUN_PRODUCTOS_HEADERS
-    }
+    Ni el orden ni el conjunto de columnas son estables entre archivos: el
+    scanner exporta las columnas que tenga configuradas. A partir del 26-08-2026
+    los archivos traen 19 columnas (se agregó "Cantidad [ % ]") en vez de las 18
+    previas, y reordenadas. Por eso la fila de encabezados se lee completa (hasta
+    la primera celda vacía) y solo se exige que estén las columnas que se leen.
+    """
+    columna_por_header: dict[str, int] = {}
+    for i in range(RUN_PRODUCTOS_ANCHO_MAX):
+        columna = RUN_PRODUCTOS_COL_INICIO + i
+        header = _normalizar_header(ws.cell(row=RUN_PRODUCTOS_FILA_HEADER, column=columna).value)
+        if header == "":
+            break
+        columna_por_header.setdefault(header, columna)
+
+    faltantes = [h for h in RUN_PRODUCTOS_HEADERS_REQUERIDOS if h not in columna_por_header]
+    if faltantes:
+        raise ValueError(
+            "La tabla 'Productos' no tiene todas las columnas necesarias. "
+            f"Faltan: {faltantes!r}. Encontradas: {list(columna_por_header)!r}. "
+            "Es probable que el scanner haya exportado el archivo con otra "
+            "configuración de columnas."
+        )
+    return columna_por_header
+
+
+def _leer_productos(ws) -> pd.DataFrame:
+    col_index = _leer_columnas_productos(ws)
     col_nombre = col_index["Nombre"]
     col_estado = col_index["Estado"]
     col_calidad = col_index["Calidad"]
-    col_volumen_nominal_m3 = col_index["Volumen Nominal\n[ m³ ] "]
-    col_cantidad_pcs = col_index["Cantidad\n[ pcs ] "]
-    col_largo_pct = col_index["Largo\n[ % ] "]
-    col_largo_m = col_index["Largo\n[ m ] "]
+    col_volumen_nominal_m3 = col_index["Volumen Nominal [ m³ ]"]
+    col_cantidad_pcs = col_index["Cantidad [ pcs ]"]
+    col_largo_pct = col_index["Largo [ % ]"]
+    col_largo_m = col_index["Largo [ m ]"]
     col_largo_maximo = col_index["Largo Máximo"]
     col_largo_minimo = col_index["Largo Mínimo"]
-    col_largo_promedio_m = col_index["Largo Promedio\n[ m ] "]
-    col_volumen_nominal_pct = col_index["Volumen Nominal\n[ % ] "]
-    col_volumen_m3 = col_index["Volumen\n[ m³ ] "]  # solo para el agregado a nivel de run, no se persiste por producto
+    col_largo_promedio_m = col_index["Largo Promedio [ m ]"]
+    col_volumen_nominal_pct = col_index["Volumen Nominal [ % ]"]
+    col_volumen_m3 = col_index["Volumen [ m³ ]"]  # solo para el agregado a nivel de run, no se persiste por producto
 
     filas = []
     fila = RUN_PRODUCTOS_FILA_INICIO_DATOS

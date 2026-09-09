@@ -66,15 +66,33 @@ RUN_TOTAL_COL_VALOR = 3
 RUN_PRODUCTOS_FILA_HEADER = 2
 RUN_PRODUCTOS_FILA_INICIO_DATOS = 3
 RUN_PRODUCTOS_COL_INICIO = 5   # columna E
-RUN_PRODUCTOS_COL_FIN = 22     # columna V
+# La tabla ya no tiene un ancho fijo: se lee la fila de encabezados desde la
+# columna E hasta la primera celda vacía, con este tope como protección ante
+# una hoja corrupta que devuelva encabezados indefinidamente.
+RUN_PRODUCTOS_ANCHO_MAX = 40
 
-# Headers exactos esperados en la tabla Productos (fila 2, columnas E:V)
-RUN_PRODUCTOS_HEADERS = [
-    "Estado", "Color", "Nombre", "Calidad", "Pateador",
-    "Volumen Nominal\n[ m³ ] ", "Volumen\n[ % ] ", "Cantidad\n[ pcs ] ",
-    "Nom. Done\n[ abs. ] ", "Hecho\n[ % ] ", "Largo\n[ % ] ", "Volumen\n[ m³ ] ",
-    "Largo\n[ m ] ", "Largo Máximo", "Largo Mínimo", "Largo Promedio\n[ m ] ",
-    "Volumen Nominal\n[ % ] ", "Priority",
+# Los encabezados se comparan normalizados: espacios/saltos de línea colapsados
+# a un solo espacio y sin espacios al inicio/fin (el archivo real trae los
+# encabezados con un salto de línea antes de la unidad y un espacio al final).
+#
+# NI el orden NI el conjunto de columnas son estables entre archivos reales:
+# el scanner exporta las columnas que tenga configuradas en ese momento. A
+# partir del 26-08-2026 los archivos traen 19 columnas (agregaron
+# "Cantidad [ % ]") en vez de las 18 anteriores, y con otro orden. Por eso solo
+# se exige que estén presentes las columnas que efectivamente se leen; el resto
+# (conocidas o nuevas) se ignora.
+RUN_PRODUCTOS_HEADERS_REQUERIDOS = [
+    "Estado", "Nombre", "Calidad",
+    "Volumen Nominal [ m³ ]", "Cantidad [ pcs ]",
+    "Largo [ % ]", "Largo [ m ]", "Largo Máximo", "Largo Mínimo",
+    "Largo Promedio [ m ]", "Volumen Nominal [ % ]", "Volumen [ m³ ]",
+]
+
+# Columnas que aparecen en los archivos reales pero que no se leen. Se listan
+# solo como documentación del formato; su ausencia no impide la carga.
+RUN_PRODUCTOS_HEADERS_IGNORADOS = [
+    "Color", "Pateador", "Nom. Done [ abs. ]", "Hecho [ % ]",
+    "Volumen [ % ]", "Cantidad [ % ]", "Priority",
 ]
 
 

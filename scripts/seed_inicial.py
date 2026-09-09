@@ -84,9 +84,16 @@ def resetear(engine) -> None:
 
 
 def encontrar_archivos(run_dir: Path) -> list[Path]:
+    """Excluye los reportes '-Defects-' (otro formato, sin tabla 'Productos') y
+    los archivos temporales '~$...' que Excel deja mientras un libro está
+    abierto (no son .xlsx reales)."""
     if not run_dir.exists():
         return []
-    return sorted(f for f in run_dir.glob("**/*.xlsx") if "defect" not in f.name.lower())
+    return sorted(
+        f
+        for f in run_dir.glob("**/*.xlsx")
+        if "defect" not in f.name.lower() and not f.name.startswith("~$")
+    )
 
 
 def cargar_runs(engine, archivos: list[Path], dry_run: bool) -> None:
@@ -95,10 +102,14 @@ def cargar_runs(engine, archivos: list[Path], dry_run: bool) -> None:
 
     for ruta in archivos:
         nombre_parseado = parse_filename(ruta.name)
+        # Cualquier excepción al abrir/parsear salta este archivo y sigue con el
+        # resto: además de los ValueError de formato, aparecen archivos que no
+        # son .xlsx reales (BadZipFile) y archivos bloqueados por Excel/OneDrive
+        # (PermissionError), y un archivo malo no debe abortar toda la carga.
         try:
             archivo_parseado = parse_run_file(ruta)
-        except ValueError as exc:
-            print(f"[runs] ERROR parseando '{ruta.name}': {exc}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[runs] ERROR parseando '{ruta.name}': {type(exc).__name__}: {exc}")
             con_error += 1
             continue
 
