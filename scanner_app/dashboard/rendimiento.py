@@ -91,6 +91,19 @@ def calcular_rendimiento_mensual(df: pd.DataFrame) -> RendimientoMensual:
     )
 
 
+def indice_rendimiento_por_escuadria(df: pd.DataFrame) -> pd.DataFrame:
+    """Índice de Rendimiento (promedio_por_lote) de cada escuadria presente en
+    `df`, una fila por escuadria, ordenado de mayor a menor índice."""
+    if df.empty:
+        return pd.DataFrame(columns=["escuadria", "indice_rendimiento"])
+
+    filas = [
+        {"escuadria": escuadria, "indice_rendimiento": promedio_por_lote(grupo)}
+        for escuadria, grupo in df.groupby("escuadria")
+    ]
+    return pd.DataFrame(filas).sort_values("indice_rendimiento", ascending=False).reset_index(drop=True)
+
+
 def agrupar_periodo(df: pd.DataFrame, agrupacion: str) -> pd.Series:
     """Bucket de fecha según agrupación (Día/Semana/Mes), como el inicio del
     período correspondiente. Usado tanto para agregaciones de volumen/cortes

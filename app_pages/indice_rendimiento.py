@@ -2,7 +2,11 @@ import streamlit as st
 
 from scanner_app.dashboard import charts
 from scanner_app.dashboard.filtros import selector_rango_fechas
-from scanner_app.dashboard.rendimiento import promedio_por_lote, serie_periodo_rendimiento
+from scanner_app.dashboard.rendimiento import (
+    indice_rendimiento_por_escuadria,
+    promedio_por_lote,
+    serie_periodo_rendimiento,
+)
 from scanner_app.db import get_conn
 from scanner_app.repository import facts_repo, master_repo
 
@@ -68,3 +72,18 @@ col2.metric(
 with st.container(border=True):
     st.subheader("Rendimiento Real vs Meta en el tiempo")
     st.altair_chart(charts.rendimiento_real_vs_meta(serie_real, rendimiento_meta, agrupacion), width="stretch")
+
+with st.container(border=True):
+    st.subheader("Índice de Rendimiento por Escuadria")
+    df_todas_escuadrias = cargar_datos(fecha_desde, fecha_hasta, None, incluir_rechazo)
+    tabla_escuadrias = indice_rendimiento_por_escuadria(df_todas_escuadrias).rename(
+        columns={"escuadria": "Escuadria", "indice_rendimiento": "Índice de Rendimiento"}
+    )
+    st.dataframe(
+        tabla_escuadrias,
+        column_config={
+            "Índice de Rendimiento": st.column_config.NumberColumn(format="%.1f%%"),
+        },
+        hide_index=True,
+        width="stretch",
+    )
