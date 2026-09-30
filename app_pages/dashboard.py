@@ -69,7 +69,7 @@ with st.container(border=True):
     st.altair_chart(charts.volumen_en_el_tiempo(df, agrupacion=agrupacion), width="stretch")
 
 with st.container(border=True):
-    st.subheader("Metros Lineales en el tiempo")
+    st.subheader("Metros Lineales consumidos en el tiempo")
     st.altair_chart(charts.metros_lineales_en_el_tiempo(df, agrupacion=agrupacion), width="stretch")
 
 with st.container(border=True):

@@ -107,9 +107,9 @@ def metros_lineales_en_el_tiempo(df: pd.DataFrame, agrupacion: str = "Día") -> 
         .mark_line(point=True, strokeWidth=2, color=_PALETTE["aqua"])
         .encode(
             x=alt.X("periodo:T", axis=_axis_fecha(agrupacion)),
-            y=alt.Y("largo_m:Q", title="Metros Lineales [m]"),
+            y=alt.Y("largo_m:Q", title="Metros Lineales consumidos [m]"),
             tooltip=[alt.Tooltip("periodo:T", title="Fecha"),
-                     alt.Tooltip("largo_m:Q", title="Metros Lineales [m]", format=",.2f")],
+                     alt.Tooltip("largo_m:Q", title="Metros Lineales consumidos [m]", format=",.2f")],
         )
     )
     etiquetas = _capa_etiquetas(agregado, "periodo", "largo_m", ",.0f")
